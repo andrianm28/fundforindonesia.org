@@ -1739,6 +1739,52 @@ describe('completeRefund', () => {
     expect(mailer.sent[0].html).not.toContain('1234567890');
   });
 
+  it('notifies a registered Donor in-app once the completion has committed (PKS pasal 3.10(1))', async () => {
+    const refundRow = baseApprovedRefundRow({
+      payment: makePayment({ amount: 100_000, providerFee: 0, donation: { campaignId: 'campaign-1', donorId: 'donor-1' } }),
+    });
+    const { tx } = makeTx({ refundRow });
+    const base = makePrisma(tx, { ...refundRow, status: 'COMPLETED', completedById: 'completer-1' });
+    const notificationCreate = vi.fn().mockResolvedValue({});
+    const prisma = { ...base, notification: { create: notificationCreate } };
+
+    await completeRefund(prisma as never, { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype });
+
+    expect(notificationCreate).toHaveBeenCalledTimes(1);
+    expect(notificationCreate.mock.calls[0][0].data).toMatchObject({
+      type: 'refund_completed',
+      userId: 'donor-1',
+      link: '/campaign/campaign-1',
+    });
+  });
+
+  it('creates no notification for a Guest Donor, and keeps the completion when the notification fails', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const guestRow = baseApprovedRefundRow({
+      payment: makePayment({ amount: 100_000, providerFee: 0, donation: { campaignId: 'campaign-1', donorId: null } }),
+    });
+    const guest = makeTx({ refundRow: guestRow });
+    const guestBase = makePrisma(guest.tx, { ...guestRow, status: 'COMPLETED' });
+    const guestCreate = vi.fn();
+    await completeRefund({ ...guestBase, notification: { create: guestCreate } } as never, {
+      refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype,
+    });
+    expect(guestCreate).not.toHaveBeenCalled();
+
+    const row = baseApprovedRefundRow({
+      payment: makePayment({ amount: 100_000, providerFee: 0, donation: { campaignId: 'campaign-1', donorId: 'donor-1' } }),
+    });
+    const { tx, rows } = makeTx({ refundRow: row });
+    const base = makePrisma(tx, { ...row, status: 'COMPLETED' });
+    const result = await completeRefund(
+      { ...base, notification: { create: vi.fn().mockRejectedValue(new Error('db down')) } } as never,
+      { refundId: 'refund-1', completedById: 'completer-1', ...validProof, ...validRetype },
+    );
+    expect(result.status).toBe('COMPLETED');
+    expect(rows.filter((r) => r.transactionId === 'refund-completed-refund-1')).toHaveLength(2);
+    errors.mockRestore();
+  });
+
   it('keeps the completion and its legs when the Donor email cannot be sent (ticket 68)', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const refundRow = baseApprovedRefundRow();

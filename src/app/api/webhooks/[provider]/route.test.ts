@@ -1113,6 +1113,81 @@ describe('POST /api/webhooks/[provider]', () => {
     },
   );
 
+  describe('payment status notifications (PKS pasal 3.10(1))', () => {
+    const lapse = async (
+      status: 'expired' | 'failed',
+      payment: ReturnType<typeof makePayment> | ReturnType<typeof makeRegistrationPayment> = makePayment(),
+      tx = makeTx().tx,
+    ) => {
+      mockGetPaymentProvider.mockReturnValue({
+        parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, status, providerEventId: 'evt-n' }),
+      });
+      mockPaymentFindUnique.mockResolvedValue(payment);
+      mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+      return POST(createRequest(), routeContext());
+    };
+
+    it.each([
+      ['expired', 'payment_expired'],
+      ['failed', 'payment_failed'],
+    ] as const)('notifies a registered donor when the payment %s', async (status, type) => {
+      const response = await lapse(status);
+
+      expect(response.status).toBe(200);
+      expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
+      expect(mockNotificationCreate.mock.calls[0][0].data).toMatchObject({
+        type,
+        userId: 'donor-1',
+        link: '/campaign/campaign-1',
+      });
+    });
+
+    it('notifies nobody for a guest donation', async () => {
+      const base = makePayment();
+      const response = await lapse(
+        'expired',
+        makePayment({ donation: { ...base.donation, donorId: null, donor: null } }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+
+    it('does not notify when another delivery already moved the Payment (duplicate callback)', async () => {
+      const response = await lapse('expired', makePayment(), makeTx({ paymentUpdateManyCount: 0 }).tx);
+
+      expect(response.status).toBe(200);
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+
+    it('does not notify when a sibling Payment keeps the Donation alive', async () => {
+      const { tx } = makeTx();
+      tx.donation.updateMany.mockResolvedValue({ count: 0 });
+
+      const response = await lapse('expired', makePayment(), tx);
+
+      expect(response.status).toBe(200);
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+
+    it('does not notify a Volunteer for a Trip Fee payment (donors only)', async () => {
+      const response = await lapse('expired', makeRegistrationPayment());
+
+      expect(response.status).toBe(200);
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+
+    it('still answers 200 when creating the notification fails', async () => {
+      mockNotificationCreate.mockRejectedValue(new Error('db down'));
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const response = await lapse('failed');
+
+      expect(response.status).toBe(200);
+      spy.mockRestore();
+    });
+  });
+
   it('logs and answers 200 without ever creating a Payment for an unknown providerRef', async () => {
     mockGetPaymentProvider.mockReturnValue({ parseWebhook: vi.fn().mockResolvedValue(PAID_EVENT) });
     mockPaymentFindUnique.mockResolvedValue(null);

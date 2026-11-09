@@ -16,7 +16,7 @@ import {
 import { sandboxModeOf } from '@/lib/money/sandbox-mode';
 import { postTransaction, paymentSettledLegs } from '@/lib/money/ledger';
 import { escrowReleaseAt } from '@/lib/money/escrow';
-import { notifyDonationConfirmed, notifyRegistrationConfirmed } from '@/lib/notifications';
+import { notifyDonationConfirmed, notifyPaymentLapsed, notifyRegistrationConfirmed } from '@/lib/notifications';
 import { assertExactlyOnePaymentSubject } from '@/lib/money/payment-subject';
 import { lateSettlementOutcome, sanitizeError, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
 import {
@@ -714,6 +714,9 @@ export async function POST(
       // Guarded by the same status-keyed updateMany as the paid path, for
       // the same reason: two distinct events for one Payment must not both
       // apply.
+      // Set only by the delivery that really ended the Donation's attempt, so
+      // a duplicate or losing delivery never notifies (ticket 16).
+      let donationLapsed = false;
       await prisma.$transaction(async (tx) => {
         const updated = await tx.payment.updateMany({
           where: { id: payment.id, status: PaymentStatus.PENDING },
@@ -739,7 +742,7 @@ export async function POST(
           // means the Donation is, or may yet be, confirmed, and a sibling's
           // expiry must not flip it back to 'failed' (PAY-04). This Payment
           // already left PENDING above, so it does not count itself.
-          await tx.donation.updateMany({
+          const donationUpdate = await tx.donation.updateMany({
             where: {
               id: payment.donation!.id,
               paymentStatus: { not: 'confirmed' },
@@ -747,6 +750,7 @@ export async function POST(
             },
             data: { paymentStatus: 'failed' },
           });
+          donationLapsed = donationUpdate.count > 0;
         }
 
         await tx.webhookEvent.update({
@@ -754,6 +758,26 @@ export async function POST(
           data: { processedAt: new Date() },
         });
       });
+
+      // After commit, never inside it: same rule as the other notifications
+      // here -- a failed in-app notice must not fail a webhook whose status
+      // change is already recorded. Registered Donors only.
+      if (donationLapsed) {
+        try {
+          const donation = payment.donation!;
+          await notifyPaymentLapsed({
+            donorId: donation.donorId,
+            campaignId: donation.campaign.id,
+            campaignTitle: donation.campaign.title,
+            amount: payment.amount,
+            outcome: event.status === 'expired' ? 'expired' : 'failed',
+          });
+        } catch (notifyErr) {
+          console.error(
+            `[webhooks/${providerParam}] event ${event.providerEventId}: payment ${payment.id} lapsed but the in-app notification was not created: ${sanitizeError(notifyErr)}`,
+          );
+        }
+      }
     }
 
     return NextResponse.json({ received: true }, { status: 200 });

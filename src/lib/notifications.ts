@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import type { PrismaClient } from '@/generated/prisma/client';
 import { formatRupiah } from '@/lib/utils/currency';
 
 /**
@@ -139,4 +140,57 @@ export async function notifyPayout(params: {
   if (notifications.length > 0) {
     await prisma.notification.createMany({ data: notifications });
   }
+}
+
+/**
+ * Tell a registered Donor that their payment attempt lapsed (PKS pasal
+ * 3.10(1)). A Guest Donor has no inbox, so donorId null creates nothing.
+ * Callers invoke it only from the branch that actually moved the Payment out
+ * of PENDING, so a duplicate callback never produces a second notification.
+ */
+export async function notifyPaymentLapsed(params: {
+  donorId: string | null;
+  campaignId: string;
+  campaignTitle: string;
+  amount: number;
+  outcome: 'expired' | 'failed';
+}) {
+  const { donorId, campaignId, campaignTitle, amount, outcome } = params;
+  if (!donorId) return;
+
+  const expired = outcome === 'expired';
+  await prisma.notification.create({
+    data: {
+      type: expired ? 'payment_expired' : 'payment_failed',
+      title: expired ? 'Pembayaran Kedaluwarsa' : 'Pembayaran Gagal',
+      message: expired
+        ? `Pembayaran donasi ${formatRupiah(amount)} untuk "${campaignTitle}" kedaluwarsa. Tidak ada dana yang terpotong.`
+        : `Pembayaran donasi ${formatRupiah(amount)} untuk "${campaignTitle}" gagal. Tidak ada dana yang terpotong.`,
+      userId: donorId,
+      link: `/campaign/${campaignId}`,
+    },
+  });
+}
+
+/**
+ * Tell a registered Donor that their Refund has been transferred (PKS pasal
+ * 3.10(1)). Takes the client explicitly because completeRefund receives its
+ * own PrismaClient; a Guest or anonymised Donor (donorId null) creates nothing.
+ */
+export async function notifyRefundCompleted(
+  client: Pick<PrismaClient, 'notification'>,
+  params: { donorId: string | null; campaignId: string; amount: number },
+) {
+  const { donorId, campaignId, amount } = params;
+  if (!donorId) return;
+
+  await client.notification.create({
+    data: {
+      type: 'refund_completed',
+      title: 'Refund Selesai',
+      message: `Dana sebesar ${formatRupiah(amount)} telah dikembalikan ke rekening Anda`,
+      userId: donorId,
+      link: `/campaign/${campaignId}`,
+    },
+  });
 }

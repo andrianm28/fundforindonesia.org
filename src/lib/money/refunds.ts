@@ -47,6 +47,7 @@ import {
 import { STANDING_REFUND_WHERE, isRefundStanding, readRefundFreezeEntries } from './refund-standing';
 import { emailRefundOutcome, emailTripFeeRefundApproved } from '@/lib/status-emails';
 import type { Mailer } from '@/lib/mail';
+import { notifyRefundCompleted } from '@/lib/notifications';
 
 /**
  * Refund: request, approve, complete.
@@ -693,6 +694,10 @@ export async function completeRefund(
 
   const typedAccountNumber = cleanDestinationText(donorAccountNumber, 'Nomor rekening', 'donorAccountNumber');
 
+  // What the in-app notification needs, read inside the transaction from the
+  // row it already loads (no extra query) and used only after commit.
+  let donorNotice: { donorId: string | null; campaignId: string; amount: number } | null = null;
+
   await prisma.$transaction(async (tx) => {
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
@@ -767,7 +772,24 @@ export async function completeRefund(
       refundPaidLegs({ amount: refund.amount }),
       { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}`, provider: payment.provider },
     );
+
+    const donation = refund.payment.donation;
+    if (donation) {
+      donorNotice = { donorId: donation.donorId ?? null, campaignId: donation.campaignId, amount: refund.amount };
+    }
   });
+
+  // After commit, like the email below: a failed in-app notification must
+  // never undo a Refund that has been paid. Registered Donors only.
+  if (donorNotice) {
+    try {
+      await notifyRefundCompleted(prisma, donorNotice);
+    } catch (err) {
+      console.error(
+        `[refunds] refund ${refundId} completed but the in-app notification was not created: ${err instanceof Error ? err.name : 'unknown error'}`,
+      );
+    }
+  }
 
   // After commit, never inside it: the Refund is paid whether or not the
   // Donor's email goes out, and nothing here throws (ticket 68). The email

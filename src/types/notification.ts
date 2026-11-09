@@ -3,7 +3,19 @@
 export type NotificationType =
   | "donation_confirmed"
   | "campaign_update"
-  | "disbursement";
+  | "disbursement"
+  | "registration_confirmed"
+  | "campaign_deadline_reminder"
+  | "kind_authorisation_expiry_warning"
+  | "campaign_transfer"
+  | "campaign_status"
+  | "assignment_granted"
+  | "assignment_revoked"
+  | "volunteer_trip_moderation"
+  | "bank_account_verification"
+  | "payment_expired"
+  | "payment_failed"
+  | "refund_completed";
 
 export type AutoDonationSchedule = "daily" | "weekly";
 
