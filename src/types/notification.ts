@@ -1,4 +1,4 @@
-// Notification and AutoDonation entity types matching Prisma models
+// Notification entity types matching Prisma models
 
 export type NotificationType =
   | "donation_confirmed"
@@ -15,9 +15,8 @@ export type NotificationType =
   | "bank_account_verification"
   | "payment_expired"
   | "payment_failed"
-  | "refund_completed";
-
-export type AutoDonationSchedule = "daily" | "weekly";
+  | "refund_completed"
+  | "recurring_donation_bill";
 
 export interface Notification {
   id: string;
@@ -30,24 +29,9 @@ export interface Notification {
   createdAt: Date;
 }
 
-export interface AutoDonation {
-  id: string;
-  amount: number;
-  category: string;
-  schedule: AutoDonationSchedule;
-  time: string; // "HH:mm" format
-  isActive: boolean;
-  userId: string;
-  createdAt: Date;
-}
-
 // Relation types
 
 export interface NotificationWithUser extends Notification {
-  user: import("./user").User;
-}
-
-export interface AutoDonationWithUser extends AutoDonation {
   user: import("./user").User;
 }
 
@@ -59,21 +43,6 @@ export interface CreateNotificationInput {
   message: string;
   userId: string;
   link?: string;
-}
-
-export interface CreateAutoDonationInput {
-  amount: number;
-  category: string;
-  schedule: AutoDonationSchedule;
-  time: string;
-}
-
-export interface UpdateAutoDonationInput {
-  amount?: number;
-  category?: string;
-  schedule?: AutoDonationSchedule;
-  time?: string;
-  isActive?: boolean;
 }
 
 // Query/list types

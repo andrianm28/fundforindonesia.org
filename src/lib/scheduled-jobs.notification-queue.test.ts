@@ -14,6 +14,7 @@ vi.mock('@/lib/reminders', () => ({
   sendKindAuthorisationExpiryWarnings: vi.fn(),
 }));
 vi.mock('@/lib/failed-notifications', () => ({ runNotificationQueuePhase: vi.fn() }));
+vi.mock('@/lib/recurring-donations/billing', () => ({ runRecurringDonationBilling: vi.fn() }));
 
 import { anonymiseExpiredCompanies } from '@/lib/tim-csr';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';

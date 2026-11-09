@@ -39,6 +39,12 @@ vi.mock('@/lib/jobs-heartbeat', () => ({
   recordJobsRun: vi.fn(),
 }));
 
+// Recurring donation billing is tested against a real Postgres
+// (src/__tests__/integration/donasi-rutin-real-db.test.ts); here it is a zero result.
+vi.mock('@/lib/recurring-donations/billing', () => ({
+  runRecurringDonationBilling: vi.fn().mockResolvedValue({ consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 }),
+}));
+
 import { sealUserEmail } from '@/lib/contact-fields';
 import { prisma } from '@/lib/prisma';
 import { sendReportingFailure } from '@/lib/mail';
@@ -285,6 +291,7 @@ describe('POST /api/internal/jobs/run -- an authorised run', () => {
         lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
         companyRetention: { consideredCount: 0, anonymisedCount: 0 },
         notificationQueue: { attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [], purgedCount: 0 },
+        recurringDonations: { consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 },
       },
     });
   });
@@ -347,6 +354,7 @@ describe('POST /api/internal/jobs/run -- a repeated call', () => {
         lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
         companyRetention: { consideredCount: 0, anonymisedCount: 0 },
         notificationQueue: { attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [], purgedCount: 0 },
+        recurringDonations: { consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 },
       },
     });
     expect((await third.json()).result.escrowRelease.releasedCount).toBe(0);

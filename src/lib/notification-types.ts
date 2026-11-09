@@ -28,6 +28,7 @@ export const NOTIFICATION_TYPE_META: Record<string, NotificationTypeMeta> = {
   payment_expired: { label: 'Pembayaran Kedaluwarsa', tone: 'warning' },
   payment_failed: { label: 'Pembayaran Gagal', tone: 'error' },
   refund_completed: { label: 'Refund', tone: 'money' },
+  recurring_donation_bill: { label: 'Donasi Rutin', tone: 'money' },
 };
 
 const FALLBACK: NotificationTypeMeta = { label: 'Notifikasi', tone: 'info' };

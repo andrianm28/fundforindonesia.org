@@ -98,7 +98,7 @@ model User {
   emailVerificationTokens          EmailVerificationToken[]
   prayers                          Prayer[]
   notifications                    Notification[]
-  autoDonations                    AutoDonation[]
+  recurringDonations               RecurringDonation[]
   assignments                      UserAssignment[]
   companyMembership                CompanyMembership?                @relation("CompanyMembershipUser")
   organisationMember               OrganisationMember?               @relation("OrganisationMemberUser")
@@ -507,6 +507,7 @@ model PartnershipInquiryStatusChange {
 }
 
 model Campaign {
+  recurringDonations RecurringDonation[]
   id                      String         @id @default(cuid())
   slug                    String         @unique
   title                   String
@@ -1285,6 +1286,9 @@ model Donation {
   payments  Payment[]
   /// Created once, the moment this Donation's Payment settles (prd-compliance
   /// 21) -- never before, since there is nothing to receipt until then.
+  /// The recurring-donation cycle this Donation bills, if it was issued by the
+  /// scheduled job (pks-pemenuhan 18); null for every ordinary Donation.
+  recurringCycle RecurringDonationCycle?
   receipt   Receipt?
   /// Created alongside the Receipt, only for a Donation on a `wakaf`
   /// Campaign (CONTEXT.md, Akad Wakaf; ticket 22).
@@ -1498,23 +1502,68 @@ model Notification {
   @@index([createdAt])
 }
 
-// ==================== Auto Donation ====================
+// ==================== Donasi Rutin ====================
 
-model AutoDonation {
-  id        String   @id @default(cuid())
-  amount    Int
-  category  String
-  schedule  String // "daily" | "weekly"
-  time      String // "HH:mm" format
-  isActive  Boolean  @default(true)
-  userId    String
-  createdAt DateTime @default(now())
+/// How often a recurring donation is billed (PKS pasal 4.7; ticket
+/// pks-pemenuhan 18). One bill per period, counted from the start date.
+enum RecurringDonationPeriod {
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  YEARLY
+}
 
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+enum RecurringDonationStatus {
+  ACTIVE
+  STOPPED
+}
 
-  @@index([userId])
-  @@index([isActive])
+/// A signed-in Donor's standing intention to give to one Campaign every
+/// period. It is NOT a mandate: nothing is ever charged on its own. Each cycle
+/// the scheduled job issues one ordinary PENDING Donation with a payment link
+/// through the existing donation path and tells the Donor, who pays or does
+/// not (no card on file). Replaces the unused AutoDonation model.
+model RecurringDonation {
+  id         String                  @id @default(cuid())
+  donorId    String
+  campaignId String
+  amount     Int
+  period     RecurringDonationPeriod
+  /// The first cycle's due date; later cycles are startDate plus n periods.
+  startDate  DateTime
+  status     RecurringDonationStatus @default(ACTIVE)
+  stoppedAt  DateTime?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+
+  donor    User                     @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  /// Campaigns are never deleted (ADR 0016); Restrict states it.
+  campaign Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  cycles   RecurringDonationCycle[]
+
+  @@index([donorId])
+  @@index([status])
+  @@index([campaignId])
+}
+
+/// One billed cycle. The row is inserted FIRST, as the claim, and only then is
+/// the Donation created; the unique (recurringId, cycleIndex) is what makes two
+/// overlapping or repeated job runs issue one bill per cycle. donationId is
+/// null only between the claim and the Donation's creation. The cycle's status
+/// (paid, overdue, pending) is never stored: it is read from the Donation the
+/// existing webhook settles, so there is no second copy to drift.
+model RecurringDonationCycle {
+  id          String   @id @default(cuid())
+  recurringId String
+  cycleIndex  Int
+  dueDate     DateTime
+  donationId  String?  @unique
+  createdAt   DateTime @default(now())
+
+  recurring RecurringDonation @relation(fields: [recurringId], references: [id], onDelete: Cascade)
+  donation  Donation?         @relation(fields: [donationId], references: [id], onDelete: Restrict)
+
+  @@unique([recurringId, cycleIndex])
 }
 
 // ==================== Category ====================
