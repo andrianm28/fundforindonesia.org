@@ -347,6 +347,8 @@ async function purgeExpired(now: Date): Promise<number> {
         { status: 'SENT', sentAt: { lt: new Date(now.getTime() - SENT_RETENTION_MS) } },
         { status: 'DEAD', createdAt: { lt: new Date(now.getTime() - DEAD_RETENTION_MS) } },
       ],
+      // Never a row a runner or an Admin resend holds right now.
+      AND: [{ OR: [{ claimedUntil: null }, { claimedUntil: { lt: now } }] }],
     },
   });
   return deleted.count;
