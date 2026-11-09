@@ -52,8 +52,9 @@ const editCampaignSchema = z.object({
   // collect under (resolveCollectingEntity).
   collectingEntityId: z.string().min(1),
   // Province, regency and beneficiaries (ticket 74): null or blank clears
-  // one. Not frozen on an Active Campaign, as `location` never was; only
-  // title and description are (requireActiveContentFieldsEditable).
+  // one. Not frozen on an Active Campaign, as `location` never was, except
+  // the beneficiary name, frozen with title and description
+  // (requireActiveContentFieldsEditable).
   ...campaignLocationSchema.shape,
 }).partial();
 

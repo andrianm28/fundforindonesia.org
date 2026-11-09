@@ -415,19 +415,22 @@ export function requireContentEditable(state: SubjectState): void {
  * Active (verification-request ticket 09). Stricter than PRD FFI-05, on
  * purpose (CONTEXT.md, Verification Request; PRD §13): a Donor should never
  * give to one purpose and later find its title or description changed.
+ * The beneficiary name too: it is what the Verifier approved and what the
+ * duplicate hints match on, so changing it after approval would slip past both.
  * Story and cover image stay editable, and this never fires outside Active
  * (`requireContentEditable` already refuses every other closed status).
  */
 export class ActiveContentFrozenError extends CampaignLifecycleError {
   readonly code = "ACTIVE_CONTENT_FROZEN";
   constructor() {
-    super("Judul dan deskripsi Campaign tidak dapat diubah lagi saat berstatus Aktif.");
+    super("Judul, deskripsi, dan nama penerima manfaat Campaign tidak dapat diubah lagi saat berstatus Aktif.");
     this.name = "ActiveContentFrozenError";
   }
 }
 
 /**
- * Passes for every content edit except a title or description edit on an
+ * Passes for every content edit except a title, description or beneficiary
+ * name edit on an
  * effectively Active Campaign. Judge it right after `requireContentEditable`,
  * on the same `lockAndLoad` result, so a submit or a status change committed
  * first is seen here too. `edit` is the parsed request body (or the fields
@@ -438,11 +441,11 @@ export class ActiveContentFrozenError extends CampaignLifecycleError {
  */
 export function requireActiveContentFieldsEditable(
   state: SubjectState,
-  edit: { title?: unknown; description?: unknown; [key: string]: unknown }
+  edit: { title?: unknown; description?: unknown; beneficiaryName?: unknown; [key: string]: unknown }
 ): void {
   if (state.kind !== "campaign") return;
   if (state.effectiveStatus !== CampaignStatus.ACTIVE) return;
-  if (edit.title !== undefined || edit.description !== undefined) {
+  if (edit.title !== undefined || edit.description !== undefined || edit.beneficiaryName !== undefined) {
     throw new ActiveContentFrozenError();
   }
 }

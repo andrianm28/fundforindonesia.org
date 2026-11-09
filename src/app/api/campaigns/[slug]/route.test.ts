@@ -1291,6 +1291,7 @@ describe('PATCH /api/campaigns/[slug] -- title and description are frozen once A
   const FIELD_VALUE: Record<string, unknown> = {
     title: 'Judul Baru',
     description: 'Deskripsi baru',
+    beneficiaryName: 'Penerima lain',
     story: '<p>Cerita baru</p>',
     coverImage: 'https://example.com/baru.jpg',
   };
@@ -1304,7 +1305,7 @@ describe('PATCH /api/campaigns/[slug] -- title and description are frozen once A
   describe('while Active', () => {
     beforeEach(() => storedAs('ACTIVE'));
 
-    it.each(['title', 'description'])('refuses a %s edit, typed 409, and writes nothing', async (field) => {
+    it.each(['title', 'description', 'beneficiaryName'])('refuses a %s edit, typed 409, and writes nothing', async (field) => {
       const response = await editField(field);
 
       expect(response.status).toBe(409);
