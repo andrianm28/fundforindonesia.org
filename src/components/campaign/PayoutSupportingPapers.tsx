@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { MAX_PAYOUT_NOTE_LENGTH } from '@/lib/payout-limits';
 
 /**
  * The supporting papers, the Admin's revision reason and the resubmit control
@@ -160,7 +161,7 @@ export function PayoutSupportingPapers({
             <textarea
               aria-label="Catatan tambahan"
               value={newNote}
-              maxLength={1000}
+              maxLength={MAX_PAYOUT_NOTE_LENGTH}
               onChange={(e) => setNewNote(e.target.value)}
               className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm"
             />
