@@ -203,6 +203,14 @@ jobs:
             echo "::notice::main has moved on to $head; pushing :$SHA without moving :latest"
           fi
 
+      # Plain sha256, the value ops/deploy.sh computes on the host. (GitHub's
+      # hashFiles() hashes differently, so it is not used.)
+      - name: Hash the host's ops files
+        id: ops
+        run: |
+          echo "deploy-sh=$(sha256sum ops/deploy.sh | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "compose-prod=$(sha256sum docker-compose.prod.yml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Image tags and OCI labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -214,8 +222,12 @@ jobs:
           # The default revision label is github.sha, which on workflow_run is
           # main's head rather than the tested commit. (`context: git` would
           # read the checkout, but refuses a detached HEAD.)
+          # The sha256 of the two ops files the owner copies to the host by
+          # hand: ops/deploy.sh refuses a new release whose host copies differ.
           labels: |
             org.opencontainers.image.revision=${{ env.SHA }}
+            org.fundforindonesia.ops.deploy-sh.sha256=${{ steps.ops.outputs.deploy-sh }}
+            org.fundforindonesia.ops.compose-prod.sha256=${{ steps.ops.outputs.compose-prod }}
 
       # Build both targets into the local Docker engine first, so they can be
       # smoke-run and scanned before anything is pushed: :latest never moves

@@ -41,6 +41,8 @@
 # only ops/deploy.sh with a SHA and two digests, and letting it write files
 # would let a leaked key replace the script. So when a release changes either
 # file, copy the new one to the host BEFORE dispatching this workflow.
+# ops/deploy.sh checks this itself: a new release whose stamped sha256 of
+# either file differs from the host's copy is refused with exit 5.
 #
 # Secrets (repository-level, Settings > Secrets and variables > Actions):
 #   DEPLOY_HOST         the host's name or IP; the SSH user is always `deploy`
@@ -172,6 +174,7 @@ jobs:
             2) result="The host refused the arguments as malformed; nothing ran. Check that ops/deploy.sh on the host matches this repo." ;;
             3) result="The new app never answered /api/health, so the host rolled back to the release before it, which is healthy. The migrations stay applied." ;;
             4) result="The new app never answered /api/health and there was no healthy release to go back to. Production needs a human now: see logs/deploy.log and backups/ on the host." ;;
+            5) result="Refused before anything changed: the host's ops/deploy.sh or docker-compose.prod.yml differs from this release's (cd.yml stamps their sha256 on the image). Copy both from the release's commit to the host, then dispatch again." ;;
             255) result="SSH failed (connection, host key or deploy key). If it dropped mid-run the deploy may still be running on the host: check its logs/deploy.log before retrying." ;;
             *) result="Unexpected exit code; see the log above and the host's logs/deploy.log." ;;
           esac
