@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { donationsEnabled, sandboxInProductionReason, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import { donationsSwitchedOff } from '@/lib/operations';
 import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { donationRefusalCopy } from '@/lib/campaign-page-status';
@@ -115,6 +116,8 @@ export async function retryDonationPayment(params: RetryDonationParams): Promise
     console.error(`[donations/retry] refusing every retry: ${blocked}`);
     return { status: 503, body: { error: DONATIONS_DISABLED_MESSAGE } };
   }
+  // The Admin's switch (src/lib/operations.ts): a second lock, only ever adds a refusal.
+  if (await donationsSwitchedOff(prisma)) return { status: 503, body: { error: DONATIONS_DISABLED_MESSAGE } };
 
   // The cap comes first, so a "busy" answer does not spend the Donor's hourly
   // allowance below.

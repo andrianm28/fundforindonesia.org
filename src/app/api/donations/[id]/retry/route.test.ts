@@ -14,6 +14,7 @@ vi.mock('@/lib/donations', async () => {
 vi.mock('@/lib/prisma', () => {
   const prisma: Record<string, unknown> = {
     donation: { findUnique: vi.fn() },
+    siteSetting: { findUnique: vi.fn().mockResolvedValue(null) },
     paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { updateMany: vi.fn(), create: vi.fn() },
     chargeWriteFailure: { create: vi.fn() },
@@ -87,6 +88,7 @@ function makeDonation(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockSandboxReason.mockReturnValue(null);
+  (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue(null);
   mockQueryRaw.mockResolvedValue([{ locked: true }]);
   mockCheckRateLimit.mockResolvedValue({ ok: true });
   mockGetServerSession.mockResolvedValue({ user: { id: 'owner-1' } });
@@ -110,6 +112,18 @@ beforeEach(() => {
 });
 
 describe('POST /api/donations/[id]/retry', () => {
+  it('returns 503 while an Admin has switched donations off, before looking up the donation (PKS ticket 01)', async () => {
+    (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue({
+      key: 'operations',
+      value: { donationsOpen: false, maintenance: { on: false, message: '' }, history: [] },
+    });
+
+    const response = await POST(retryRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(mockDonationFindUnique).not.toHaveBeenCalled();
+  });
+
   it('returns 503 when sandbox credentials are live in production, before looking up the donation', async () => {
     mockSandboxReason.mockReturnValue('SUMOPOD_BASE_URL points at the Sumopod sandbox in production.');
 

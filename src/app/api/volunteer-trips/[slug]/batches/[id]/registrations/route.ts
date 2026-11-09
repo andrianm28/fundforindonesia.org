@@ -22,6 +22,7 @@ import {
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
 } from '@/lib/donations';
+import { donationsSwitchedOff } from '@/lib/operations';
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
 
 /**
@@ -64,6 +65,11 @@ export async function POST(
   const blocked = sandboxInProductionReason();
   if (blocked) {
     console.error(`[registrations] refusing every charge: ${blocked}`);
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
+  // The Admin's switch (src/lib/operations.ts): the same second lock as Donation.
+  if (await donationsSwitchedOff(prisma)) {
     return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
   }
 

@@ -13,6 +13,7 @@ import {
   DONATIONS_DISABLED_MESSAGE,
   MIN_DONATION_AMOUNT,
 } from '@/lib/donations';
+import { donationsSwitchedOff } from '@/lib/operations';
 import { formatRupiah } from '@/lib/utils/currency';
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
@@ -70,6 +71,12 @@ export async function POST(request: NextRequest) {
   const blocked = sandboxInProductionReason();
   if (blocked) {
     console.error(`[donations] refusing every donation: ${blocked}`);
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
+  // The second lock: an Admin can close the gate from the panel without a
+  // rebuild (src/lib/operations.ts). It only ever adds a refusal.
+  if (await donationsSwitchedOff(prisma)) {
     return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
   }
 

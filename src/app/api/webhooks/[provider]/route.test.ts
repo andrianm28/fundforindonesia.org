@@ -12,6 +12,8 @@ vi.mock('@/lib/prisma', () => ({
     payment: { findUnique: vi.fn() },
     paymentProviderSetting: { findFirst: vi.fn() },
     donation: { findUnique: vi.fn() },
+    // Setelan operasional (src/lib/operations.ts); see the test that switches everything off.
+    siteSetting: { findUnique: vi.fn() },
     notification: { createMany: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -384,6 +386,29 @@ describe('POST /api/webhooks/[provider]', () => {
       expect(mockTransaction).not.toHaveBeenCalled();
       expect(mockWebhookEventUpdate).not.toHaveBeenCalled();
     });
+  });
+
+  it('still settles a payment while an Admin has donations switched off AND maintenance on (PKS ticket 01)', async () => {
+    // A payment already under way must be recorded whatever the switches say:
+    // the webhook is behind neither the donation switch nor maintenance mode.
+    (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue({
+      key: 'operations',
+      value: { donationsOpen: false, maintenance: { on: true, message: 'Sedang pemeliharaan.' }, history: [] },
+    });
+    mockGetPaymentProvider.mockReturnValue({
+      parseWebhook: vi.fn().mockResolvedValue({ ...PAID_EVENT, provider: 'sumopod' }),
+    });
+    mockPaymentFindUnique.mockResolvedValue(makePayment({ provider: 'sumopod' }));
+    const { tx, ledgerRows } = makeTx();
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+
+    const response = await POST(
+      new NextRequest('http://localhost:3000/api/webhooks/sumopod', { method: 'POST', body: '{}' }),
+      { params: Promise.resolve({ provider: 'sumopod' }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(ledgerRows.length).toBeGreaterThan(0);
   });
 
   it('stamps the provider on every leg of a settlement, so the Provider Balance can be read per provider', async () => {

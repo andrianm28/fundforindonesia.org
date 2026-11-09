@@ -1,6 +1,8 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import type { NextRequestWithAuth } from "next-auth/middleware";
+import { getToken } from "next-auth/jwt";
+import { MAINTENANCE_DEFAULT_MESSAGE, resolveOperations } from "@/lib/operations";
 
 // Local type to avoid importing from @prisma/client (keeps the proxy lightweight)
 type Assignment = "ADMIN" | "VERIFIER";
@@ -93,7 +95,64 @@ async function answerExploreCategory(req: NextRequest, slug: string) {
   return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
 }
 
+// Mode pemeliharaan (src/lib/operations.ts, PKS ticket 01). While it is on,
+// a write to the API is refused with 503 unless the caller is an Admin. Left
+// working on purpose: the Admin panel and its API (how maintenance is turned
+// off), the webhooks (a payment already under way must still be recorded),
+// health (the deploy script polls it), login/logout, the scheduled jobs and
+// the browser's error reports. A prefix counts only on a path-segment
+// boundary, so /api/administrasi is not /api/admin.
+const MAINTENANCE_EXEMPT = [
+  "/api/admin",
+  "/api/webhooks",
+  "/api/health",
+  "/api/auth",
+  "/api/internal",
+  "/api/client-error",
+];
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function isMaintenanceExempt(pathname: string): boolean {
+  return MAINTENANCE_EXEMPT.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/** The maintenance message while it is on, or null (also when it cannot be read: fail open). */
+async function maintenanceMessage(): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), LOOKUP_TIMEOUT_MS);
+    });
+    const operations = await Promise.race([resolveOperations(prisma), timeout]);
+    if (!operations || !operations.maintenance.on) return null;
+    return operations.maintenance.message || MAINTENANCE_DEFAULT_MESSAGE;
+  } catch {
+    // Maintenance is a convenience for the operator: an unreadable row must not take the API down.
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function answerApi(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (SAFE_METHODS.has(req.method) || isMaintenanceExempt(pathname)) return NextResponse.next();
+
+  const message = await maintenanceMessage();
+  if (message === null) return NextResponse.next();
+
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET }).catch(() => null);
+  const assignments = (token?.assignments as Assignment[] | undefined) ?? [];
+  if (assignments.includes("ADMIN")) return NextResponse.next();
+
+  return NextResponse.json({ error: message }, { status: 503, headers: { "Retry-After": "300" } });
+}
+
 export default function proxy(req: NextRequest, event: NextFetchEvent) {
+  // The API is not behind the sign-in guard below (each route does its own
+  // auth); it only gets the maintenance answer.
+  if (req.nextUrl.pathname.startsWith("/api/")) return answerApi(req);
   const slug = exploreCategorySlug(req.nextUrl.pathname);
   if (slug === null) return authProxy(req as NextRequestWithAuth, event);
   return answerExploreCategory(req, slug);
@@ -113,5 +172,7 @@ export const config = {
     "/moderasi/:path*",
     // Not a guard: see answerExploreCategory.
     "/explore/:category",
+    // Not a guard either: only the maintenance answer, see answerApi.
+    "/api/:path*",
   ],
 };

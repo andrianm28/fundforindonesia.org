@@ -11,7 +11,7 @@ import { NextRequest } from 'next/server';
  */
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { campaign: { findUnique: vi.fn() }, user: { findFirst: vi.fn(), create: vi.fn() } },
+  prisma: { siteSetting: { findUnique: vi.fn().mockResolvedValue(null) }, campaign: { findUnique: vi.fn() }, user: { findFirst: vi.fn(), create: vi.fn() } },
 }));
 vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
