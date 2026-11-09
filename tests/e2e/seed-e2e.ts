@@ -24,6 +24,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { sealDonationGuestEmail, sealInquiryContactEmail, sealUserEmail } from '../../src/lib/contact-fields';
 import { hashPassword } from '../../src/lib/password-hash';
 import { PASSWORD_HASH_COST } from '../../src/lib/password-hash-cost';
+import { recordConsent } from '../../src/lib/consent';
 import {
   CSR_ALPHA_DOMAIN,
   CSR_ALPHA_EMAIL,
@@ -382,7 +383,17 @@ async function main() {
   }
 }
 
+/**
+ * Every seeded account has accepted the current Terms and Privacy (ticket 07),
+ * so the consent gate does not divert e2e journeys to /akun/persetujuan.
+ */
+async function consentAll() {
+  const users = await prisma.user.findMany({ select: { id: true } });
+  for (const user of users) await recordConsent(prisma, user.id);
+}
+
 main()
+  .then(() => consentAll())
   .then(() => prisma.$disconnect())
   .catch(async (error: unknown) => {
     console.error(error);
