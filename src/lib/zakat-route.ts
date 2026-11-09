@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { zakatSwitchedOn } from "@/lib/operations";
 import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
 
-type RouteHandler = (req: NextRequest, context?: any) => Promise<NextResponse>;
+/** The same handler shape withHiddenAssignmentCheck takes and returns. */
+type RouteHandler = Parameters<typeof withHiddenAssignmentCheck>[1];
 
 /**
  * An Admin-only API of the zakat module (PKS pemenuhan 19, ADR 0028). While
