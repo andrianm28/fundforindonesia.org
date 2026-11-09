@@ -139,6 +139,22 @@ describe('proxy', () => {
     );
   });
 
+  // pks-pemenuhan/03: the jwt callback gives a holder whose second factor is
+  // not satisfied an EMPTY assignment list (src/lib/mfa-gate.ts), so the gate
+  // above answers them with the same literal 404 as a non-holder. The panel
+  // APIs are guarded by withHiddenAssignmentCheck, not by this proxy; that is
+  // proved in src/app/api/admin/mfa-second-factor-404.test.ts.
+  describe.each(['challenge', 'enroll'])('a holder whose second factor is %s', (mfaState) => {
+    it.each(['/admin', '/admin/users', '/moderasi', '/moderasi/campaigns'])(
+      'is answered with a 404 on %s',
+      (path) => {
+        const req = requestAs(path, 'DONOR', []);
+        req.nextauth.token = { ...req.nextauth.token, mfaState } as typeof req.nextauth.token;
+        expectNotFound((proxy as unknown as (req: NextRequest) => Response)(req));
+      },
+    );
+  });
+
   describe('the /admin gate asks for the ADMIN assignment (ADR 0005), not the Role', () => {
     it.each(['/admin', '/admin/users', '/admin/campaigns/123'])(
       'lets someone holding the ADMIN assignment, whatever their Role, into %s',

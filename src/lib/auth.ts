@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextAuthOptions, getServerSession as nextAuthGetServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
@@ -11,6 +12,8 @@ import { isRemoteProviderPicture, providerPicture } from "@/lib/provider-picture
 import { clientAddress } from "@/lib/client-ip";
 import { checkRateLimit } from "@/lib/rate-limit-guard";
 import { sessionPasswordClaim } from "@/lib/password-reset";
+import { enrollGraceDays, resolveMfa, type MfaAssignment } from "@/lib/mfa-gate";
+import { readMfaProof } from "@/lib/mfa-proof";
 import { lookupUserEmail, readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 
 // Both halves of the adapter need the schema it cannot see: the write goes
@@ -130,9 +133,14 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user, account, profile }) {
+    async jwt({ token, user, account, profile, trigger, session: updateData }) {
       if (user) {
         token.id = user.id;
+        // A new sign-in is a new session: a fresh id for second-factor proofs
+        // to be bound to, and nothing carried over from a token that had passed
+        // the factor (pks-pemenuhan/03).
+        token.sid = randomUUID();
+        delete token.mfaEnabledAt;
 
         // Signing in again with a different picture updates the stored one
         // (ticket 47). A picture the user uploaded here (a local path) is not
@@ -159,7 +167,11 @@ export const authOptions: NextAuthOptions = {
       if (token.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.id as string },
-          select: { password: true, assignments: { select: { assignment: true } } },
+          select: {
+            password: true,
+            assignments: { select: { assignment: true, assignedAt: true } },
+            mfa: { select: { enabledAt: true } },
+          },
         });
 
         if (dbUser) {
@@ -181,7 +193,38 @@ export const authOptions: NextAuthOptions = {
             token.assignments = [];
             return token;
           }
-          token.assignments = dbUser.assignments.map((a) => a.assignment);
+
+          // Second factor (pks-pemenuhan/03, contract Pasal 8(1)). The token
+          // never carries panel authority until the factor is satisfied: the
+          // effective assignments are EMPTY, so the proxy, both layouts and
+          // withAssignmentCheck refuse with the same 404 as for a person who
+          // never held the assignment, without each having to know about MFA.
+          //
+          // The only way to satisfy it is a proof the server minted after
+          // checking a code (src/lib/mfa-proof.ts). The client's `update()`
+          // data is otherwise ignored: it is attacker-controlled input.
+          if (!token.sid) token.sid = randomUUID();
+          if (trigger === "update") {
+            const verifiedFor = readMfaProof(
+              (updateData as { mfaProof?: unknown } | null | undefined)?.mfaProof,
+              { userId: token.id as string, sid: token.sid as string },
+              Date.now(),
+            );
+            if (verifiedFor !== null) token.mfaEnabledAt = verifiedFor;
+          }
+          const held = dbUser.assignments.map((a) => a.assignment) as MfaAssignment[];
+          const gate = resolveMfa({
+            assignments: held,
+            enabledAtMs: dbUser.mfa?.enabledAt ? dbUser.mfa.enabledAt.getTime() : null,
+            verifiedEnabledAtMs: token.mfaEnabledAt,
+            privilegedSinceMs: dbUser.assignments.length
+              ? Math.min(...dbUser.assignments.map((a) => a.assignedAt.getTime()))
+              : null,
+            now: Date.now(),
+            graceDays: enrollGraceDays(process.env),
+          });
+          token.assignments = gate.assignments;
+          token.mfaState = gate.state;
         }
       }
 
@@ -195,6 +238,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.assignments = (token.assignments as Assignment[]) ?? [];
+        session.user.mfaState = token.mfaState ?? "none";
       }
       return session;
     },

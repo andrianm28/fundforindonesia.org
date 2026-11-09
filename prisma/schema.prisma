@@ -135,6 +135,12 @@ model User {
   // query uses, so the plain `@@index([emailHmac])` the expand step added is
   // dropped with it rather than left as a second index on one column.
   siteSettingsSet                   SiteSetting[]
+
+  // Second factor (pks-pemenuhan/03)
+  mfa                               UserMfa?
+  mfaBackupCodes                    MfaBackupCode[]
+  mfaAuditsAsSubject                MfaAuditEntry[]                   @relation("MfaAuditSubject")
+  mfaAuditsAsActor                  MfaAuditEntry[]                   @relation("MfaAuditActor")
 }
 
 /// Verifier and Admin are assignments a person holds, not ranks.
@@ -151,6 +157,64 @@ model UserAssignment {
 
   @@id([userId, assignment])
   @@index([assignment])
+}
+
+/// A person's TOTP second factor (RFC 6238; pks-pemenuhan/03, contract Pasal
+/// 8(1)). One row per user. `enabledAt` is null while enrolment is begun but
+/// not confirmed with a first code; only a row with `enabledAt` counts as
+/// enrolled. The secret is sealed with the field-encryption scheme (ADR 0012),
+/// never stored in the clear.
+model UserMfa {
+  userId           String    @id
+  /// base64(iv | AES-256-GCM ciphertext | tag) of the base32 secret.
+  secretCiphertext String
+  secretKeyId      String
+  enabledAt        DateTime?
+  /// The highest TOTP step already accepted: a code is refused unless its step
+  /// is above this, so one code is never good twice.
+  lastUsedStep     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// One of the ten single-use recovery codes issued at enrolment. Only a bcrypt
+/// hash is kept; `usedAt` is set by a conditional update so a code is spent once.
+model MfaBackupCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum MfaAuditAction {
+  ENROLLED
+  /// Another Admin removed the person's factor so they must enrol again.
+  RESET
+  BACKUP_CODES_REGENERATED
+  BACKUP_CODE_USED
+}
+
+/// Who did what to whose second factor. Kept like AssignmentAuditEntry; the
+/// actor is the person themselves except for RESET.
+model MfaAuditEntry {
+  id        String         @id @default(cuid())
+  userId    String
+  actedById String
+  action    MfaAuditAction
+  actedAt   DateTime       @default(now())
+  reason    String?
+
+  user    User @relation("MfaAuditSubject", fields: [userId], references: [id], onDelete: Cascade)
+  actedBy User @relation("MfaAuditActor", fields: [actedById], references: [id])
+
+  @@index([userId])
 }
 
 enum AssignmentAuditAction {
