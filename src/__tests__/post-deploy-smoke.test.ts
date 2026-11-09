@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -53,7 +53,7 @@ describe("ci/post-deploy-smoke.sh", () => {
   it("passes when pages answer 200 and production reports the commit", () => {
     const r = smoke([SHA], { REVISION: SHA, PUBLIC_URL: "https://example.test/" });
     expect(r.status, r.stdout).toBe(0);
-    expect(spawnSync("cat", [join(root, "urls")], { encoding: "utf8" }).stdout).toBe(
+    expect(readFileSync(join(root, "urls"), "utf8")).toBe(
       "https://example.test/\nhttps://example.test/explore/all\n",
     );
   });
