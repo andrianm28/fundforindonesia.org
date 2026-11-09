@@ -9,6 +9,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: db }));
 vi.mock('@/lib/donations', () => ({ donationsEnabled: () => true, sandboxInProductionReason: () => null }));
 vi.mock('@/lib/operations', () => ({ donationsSwitchedOff: vi.fn().mockResolvedValue(false) }));
 vi.mock('@/lib/donation-retry', () => ({ RETRY_CAMPAIGN_SELECT: {}, campaignRetryRefusal: vi.fn().mockReturnValue(null) }));
+vi.mock('@/lib/zakat', () => ({ zakatCheckoutRefusal: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/lib/payments', () => ({ PaymentProviderNotConfiguredError: class extends Error {} }));
 vi.mock('@/lib/payments/active-provider', () => ({
   resolveActivePaymentProvider: vi.fn().mockResolvedValue({ provider: {}, enabledMethods: ['qris_redirect'] }),
@@ -24,6 +25,7 @@ vi.mock('./stop-token', () => ({
 
 import { runRecurringDonationBilling } from './billing';
 import { createChargedDonation } from '@/lib/money/create-charged-donation';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 
 const mockCreateCharged = createChargedDonation as unknown as Mock;
 
@@ -67,6 +69,23 @@ describe('runRecurringDonationBilling', () => {
     const result = await runRecurringDonationBilling(NOW);
     expect(result.issuedCount).toBe(1);
     expect(db.recurringDonationCycle.create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['the zakat module is off', { status: 404, error: 'Campaign tidak ditemukan' }],
+    ['the Campaign is not the configured recipient', { status: 403, error: 'Zakat hanya diterima melalui lembaga penerima zakat yang ditetapkan.' }],
+  ])('skips a zakat Campaign when %s: no cycle claimed, no Donation, no charge', async (_why, refusal) => {
+    (zakatCheckoutRefusal as unknown as Mock).mockResolvedValueOnce(refusal);
+    db.recurringDonation.findMany.mockResolvedValue([
+      recurring({ campaign: { id: 'camp-z', title: 'Zakat', kind: 'ZAKAT', category: 'zakat', collectingEntity: { id: 'org-x' } } }),
+    ]);
+
+    const result = await runRecurringDonationBilling(NOW);
+
+    expect(result).toMatchObject({ consideredCount: 1, issuedCount: 0, skippedCount: 1, failedCount: 0 });
+    expect(db.recurringDonationCycle.create).not.toHaveBeenCalled();
+    expect(mockCreateCharged).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('rec-1'));
   });
 
   it('skips a wakaf Campaign at billing time: no cycle claimed, no Donation, no charge', async () => {

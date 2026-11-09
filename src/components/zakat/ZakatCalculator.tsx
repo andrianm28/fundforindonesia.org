@@ -2,7 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { calculateZakatMaal, calculateZakatPenghasilan, ZAKAT_RATE_PERCENT, type ZakatResult } from '@/lib/zakat-calculator';
+import {
+  calculateZakatMaal,
+  calculateZakatPenghasilan,
+  ZAKAT_INPUT_MAX,
+  ZAKAT_INPUT_MAX_MESSAGE,
+  ZAKAT_RATE_PERCENT,
+  type ZakatResult,
+} from '@/lib/zakat-calculator';
 import { MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { formatRupiah } from '@/lib/utils/currency';
 
@@ -15,8 +22,7 @@ import { formatRupiah } from '@/lib/utils/currency';
 
 type Tab = 'penghasilan' | 'maal';
 
-/** "10.000.000" or "10000000" -> number; empty -> 0; anything else (a comma, a fraction, letters) -> null. */
-function parseRupiah(text: string): number | null {
+function rawRupiah(text: string): number | null {
   const trimmed = text.trim();
   if (trimmed === '') return 0;
   if (/^\d+$/.test(trimmed)) return Number(trimmed);
@@ -24,8 +30,19 @@ function parseRupiah(text: string): number | null {
   return null;
 }
 
+/**
+ * "10.000.000" or "10000000" -> number; empty -> 0; anything else (a comma, a
+ * fraction, letters) or more than the calculator's ceiling -> null.
+ */
+function parseRupiah(text: string): number | null {
+  const n = rawRupiah(text);
+  return n === null || !Number.isSafeInteger(n) || n > ZAKAT_INPUT_MAX ? null : n;
+}
+
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const invalid = parseRupiah(value) === null;
+  const raw = rawRupiah(value);
+  const tooLarge = invalid && raw !== null;
   return (
     <label className="block text-sm text-text">
       {label}
@@ -38,7 +55,11 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
         onChange={(e) => onChange(e.target.value)}
         className="mt-1 w-full rounded-lg border border-border px-3 py-2"
       />
-      {invalid && <span className="mt-1 block text-xs text-danger">Isi dengan angka rupiah bulat, tanpa koma.</span>}
+      {invalid && (
+        <span className="mt-1 block text-xs text-danger">
+          {tooLarge ? `Nilai ${ZAKAT_INPUT_MAX_MESSAGE}.` : 'Isi dengan angka rupiah bulat, tanpa koma.'}
+        </span>
+      )}
     </label>
   );
 }
@@ -60,6 +81,8 @@ export function ZakatCalculator({
   const [trade, setTrade] = useState('');
   const [debts, setDebts] = useState('');
   const [manual, setManual] = useState('');
+  // Zakat maal is owed only on wealth held a full year (haul); the calculator cannot know that.
+  const [haul, setHaul] = useState(false);
 
   let result: ZakatResult | null = null;
   if (tab === 'penghasilan') {
@@ -84,7 +107,8 @@ export function ZakatCalculator({
   // The amount to pay: what the payer typed, else what the calculator found.
   const manualValue = parseRupiah(manual);
   const typed = manual.trim() !== '';
-  const amount = typed ? manualValue : result?.obligatory ? result.amount : null;
+  const counted = result?.obligatory && (tab === 'penghasilan' || haul);
+  const amount = typed ? manualValue : counted && result ? result.amount : null;
   const payable =
     amount !== null && Number.isSafeInteger(amount) && amount >= MIN_DONATION_AMOUNT && amount <= MAX_DONATION_AMOUNT;
 
@@ -134,12 +158,22 @@ export function ZakatCalculator({
           <Field label="Emas dan investasi (Rp)" value={gold} onChange={setGold} />
           <Field label="Aset usaha (Rp)" value={trade} onChange={setTrade} />
           <Field label="Utang jatuh tempo (Rp)" value={debts} onChange={setDebts} />
+          <label className="flex items-start gap-2 text-sm text-text">
+            <input type="checkbox" checked={haul} onChange={(e) => setHaul(e.target.checked)} className="mt-1" />
+            <span>Saya sudah memiliki harta ini selama satu tahun penuh (haul).</span>
+          </label>
         </div>
       )}
 
       <div data-testid="zakat-result" className="rounded-xl bg-bg-secondary p-4 text-sm text-text">
         {result === null ? (
           <p>Isi angka di atas untuk melihat perhitungan, atau langsung isi nominal sendiri di bawah.</p>
+        ) : result.obligatory && tab === 'maal' && !haul ? (
+          <p>
+            Harta yang dihitung {formatRupiah(result.base)} mencapai nisab, tetapi zakat maal baru wajib bila harta itu sudah
+            dimiliki setahun penuh (haul). Centang pernyataan haul di atas bila itu benar. Kalkulator ini hanya alat bantu
+            hitung.
+          </p>
         ) : result.obligatory ? (
           <p>
             Harta yang dihitung {formatRupiah(result.base)} mencapai nisab. Zakat {ZAKAT_RATE_PERCENT.toString().replace('.', ',')}%:{' '}

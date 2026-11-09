@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@/generated/prisma/client';
 import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycle';
 import { RETRY_CAMPAIGN_SELECT } from '@/lib/donation-retry';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 import { MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { verifyRecurringStopToken } from './stop-token';
 import type { RecurringPeriod } from './schedule';
@@ -14,7 +15,7 @@ import type { RecurringPeriod } from './schedule';
  * job simply issues no bill until they are back on.
  */
 
-type ServiceDb = Pick<PrismaClient, 'recurringDonation' | 'campaign'>;
+type ServiceDb = Pick<PrismaClient, 'recurringDonation' | 'campaign' | 'siteSetting'>;
 
 /** Active recurring donations one Donor may hold, so one account cannot queue unbounded bills. */
 export const MAX_ACTIVE_RECURRING_PER_DONOR = 20;
@@ -87,7 +88,10 @@ export async function findRegistrableCampaign(
     campaign.isDemo ||
     campaign.kind === 'WAKAF' ||
     donationBlock(campaign, now) ||
-    !campaignAcceptsDonations(campaign, now)
+    !campaignAcceptsDonations(campaign, now) ||
+    // A zakat Campaign the zakat checkout would refuse (module off, or not the
+    // configured recipient) cannot be registered either (ADR 0028).
+    (await zakatCheckoutRefusal(db, campaign)) !== null
   ) {
     return null;
   }

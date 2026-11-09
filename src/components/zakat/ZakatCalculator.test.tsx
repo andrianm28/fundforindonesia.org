@@ -39,9 +39,10 @@ describe('ZakatCalculator', () => {
     type('Tabungan (Rp)', '90000000');
     type('Emas dan investasi (Rp)', '30000000');
     type('Utang jatuh tempo (Rp)', '20000000');
+    fireEvent.click(screen.getByRole('checkbox', { name: /satu tahun/i }));
 
     expect(screen.getByTestId('zakat-result').textContent).toMatch(/Rp2\.500\.000/);
-    expect(screen.getByText(/satu tahun/i)).toBeDefined();
+    expect(screen.getAllByText(/satu tahun/i).length).toBeGreaterThan(0);
   });
 
   it('refuses a manual amount that is not whole rupiah: the pay link stays off', () => {
@@ -66,5 +67,33 @@ describe('ZakatCalculator', () => {
 
     expect(container.textContent).toContain('Yayasan Contoh Peduli');
     expect(container.textContent).not.toMatch(/tersertifikasi|bersertifikat|sertifikasi syariah|dijamin syariah/i);
+  });
+
+  it('does not call maal wajib until the payer confirms the one-year haul', () => {
+    render(<ZakatCalculator {...props} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Zakat maal' }));
+    type('Tabungan (Rp)', '120000000');
+
+    const box = screen.getByRole('checkbox', { name: /satu tahun/i }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(screen.getByTestId('zakat-result').textContent).not.toMatch(/Rp3\.000\.000/);
+    expect(screen.getByTestId('zakat-result').textContent).toMatch(/haul/i);
+    expect(screen.queryByRole('link', { name: /lanjut ke pembayaran/i })).toBeNull();
+
+    fireEvent.click(box);
+    expect(screen.getByTestId('zakat-result').textContent).toMatch(/Rp3\.000\.000/);
+    expect(screen.getByRole('link', { name: /lanjut ke pembayaran/i }).getAttribute('href')).toBe(
+      '/campaign/zakat-yayasan/donate?jumlah=3000000',
+    );
+  });
+
+  it('refuses an input above the ceiling with a message in Indonesian, and shows no result', () => {
+    render(<ZakatCalculator {...props} />);
+
+    type('Penghasilan per bulan (Rp)', '10000000000001');
+
+    expect(screen.getByText(/tidak boleh lebih dari Rp10\.000\.000\.000\.000/)).toBeDefined();
+    expect(screen.getByTestId('zakat-result').textContent).toMatch(/Isi angka/);
   });
 });

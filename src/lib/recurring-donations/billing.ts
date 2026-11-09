@@ -3,6 +3,7 @@ import { readUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
 import { donationsEnabled, sandboxInProductionReason } from '@/lib/donations';
 import { donationsSwitchedOff } from '@/lib/operations';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 import { campaignRetryRefusal, RETRY_CAMPAIGN_SELECT } from '@/lib/donation-retry';
 import { PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
@@ -155,6 +156,15 @@ export async function runRecurringDonationBilling(
         // A wakaf bill cannot carry the Donor's explicit ikrar.
         recurring.campaign.kind === 'WAKAF';
       if (skip || index === null) {
+        result.skippedCount += 1;
+        continue;
+      }
+      // Zakat's own gate (ADR 0028), the one POST /api/donations applies: module
+      // off, or the Campaign no longer collects under the configured recipient.
+      // A bill is a checkout, so it is refused the same way, and logged.
+      const zakatRefusal = await zakatCheckoutRefusal(prisma, recurring.campaign);
+      if (zakatRefusal) {
+        console.error(`[recurring-donations] recurring ${recurring.id} not billed: zakat gate refuses (${zakatRefusal.status})`);
         result.skippedCount += 1;
         continue;
       }

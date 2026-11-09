@@ -9,6 +9,7 @@ import {
   zakatPosition,
 } from './zakat-distributions';
 import { OPERATIONS_KEY } from './operations';
+import { countedPaymentWhere } from './money/counted-payment';
 
 /**
  * Zakat distribution records (PKS pemenuhan 19, ADR 0028): an Admin writes
@@ -21,10 +22,11 @@ const NOW = new Date('2026-11-09T05:00:00.000Z');
 const ADMIN = { actorId: 'admin-1', now: NOW };
 const ZAKAT_ON = { enabled: true, nisabAmount: 85_000_000, recipientOrganisationId: 'org-1' };
 
-function fakeDb(opts: { zakat?: unknown; received?: number; distributed?: number } = {}) {
+function fakeDb(opts: { zakat?: unknown; received?: number; distributed?: number; refunded?: number } = {}) {
   const created: Record<string, unknown>[] = [];
   const zakat = opts.zakat === undefined ? ZAKAT_ON : opts.zakat;
   const donationAggregate = vi.fn(async () => ({ _sum: { amount: opts.received ?? 0 } }));
+  const refundAggregate = vi.fn(async () => ({ _sum: { amount: opts.refunded ?? 0 } }));
   const distributionAggregate = vi.fn(async () => ({ _sum: { amount: opts.distributed ?? 0 } }));
   const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
     created.push(data);
@@ -40,11 +42,12 @@ function fakeDb(opts: { zakat?: unknown; received?: number; distributed?: number
       })),
     },
     donation: { aggregate: donationAggregate },
+    refund: { aggregate: refundAggregate },
     zakatDistribution: { aggregate: distributionAggregate, create, findMany: vi.fn(async () => created) },
     $queryRaw: queryRaw,
   };
   const db = { ...tx, $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) } as never;
-  return { db, created, create, queryRaw, donationAggregate };
+  return { db, created, create, queryRaw, donationAggregate, refundAggregate };
 }
 
 const INPUT = {
@@ -60,15 +63,38 @@ describe('zakatPosition', () => {
     const { db, donationAggregate } = fakeDb({ received: 3_000_000, distributed: 1_200_000 });
 
     expect(await zakatPosition(db, 'org-1')).toEqual({ received: 3_000_000, distributed: 1_200_000, remaining: 1_800_000 });
-    // Real money only: a confirmed Donation on a zakat Campaign of the institution, no beta (sandbox) Payment.
+    // Real money only: the ONE counted-payment rule, never a hand-written sandbox filter.
     expect(donationAggregate).toHaveBeenCalledWith({
       where: {
         paymentStatus: 'confirmed',
-        payments: { none: { sandbox: true } },
+        payments: { some: countedPaymentWhere() },
         campaign: { kind: 'ZAKAT', collectingEntityId: 'org-1' },
       },
       _sum: { amount: true },
     });
+  });
+
+  it('nets out refunds of counted zakat Payments, full and partial', async () => {
+    const { db, refundAggregate } = fakeDb({ received: 3_000_000, refunded: 1_000_000, distributed: 500_000 });
+
+    // Donation.paymentStatus stays confirmed through a Refund (Payment goes REFUNDED only on a full one),
+    // so the Refund rows are what is subtracted.
+    expect(await zakatPosition(db, 'org-1')).toEqual({ received: 2_000_000, distributed: 500_000, remaining: 1_500_000 });
+    expect(refundAggregate).toHaveBeenCalledWith({
+      where: {
+        status: { in: ['APPROVED', 'PROCESSING', 'COMPLETED'] },
+        payment: {
+          ...countedPaymentWhere(),
+          donation: { campaign: { kind: 'ZAKAT', collectingEntityId: 'org-1' } },
+        },
+      },
+      _sum: { amount: true },
+    });
+  });
+
+  it('never reports a negative amount received', async () => {
+    const { db } = fakeDb({ received: 100_000, refunded: 300_000 });
+    expect((await zakatPosition(db, 'org-1')).received).toBe(0);
   });
 
   it('is all zero before anything came in', async () => {

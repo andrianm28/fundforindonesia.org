@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ZAKAT_RATE_PERCENT, calculateZakatMaal, calculateZakatPenghasilan, zakatNisabPerMonth } from './zakat-calculator';
+import { ZAKAT_INPUT_MAX, ZAKAT_RATE_PERCENT, calculateZakatMaal, calculateZakatPenghasilan, zakatNisabPerMonth } from './zakat-calculator';
 
 /**
  * Kalkulator zakat sederhana (PKS pemenuhan 19). Nilai harapan dihitung
@@ -60,5 +60,15 @@ describe('zakat calculator', () => {
     expect(() => calculateZakatPenghasilan({ nisab: NISAB, monthlyIncome: -1, otherMonthlyIncome: 0 })).toThrow();
     expect(() => calculateZakatPenghasilan({ nisab: NISAB, monthlyIncome: 1.5, otherMonthlyIncome: 0 })).toThrow();
     expect(() => calculateZakatMaal({ nisab: 0, savings: 1, goldAndInvestments: 0, tradeAssets: 0, debtsDue: 0 })).toThrow();
+  });
+
+  it('caps every input at a documented ceiling, so no sum or product can leave safe integer range', () => {
+    expect(ZAKAT_INPUT_MAX).toBe(10_000_000_000_000);
+    // The ceiling itself is accepted, even four times over and times 25.
+    expect(
+      calculateZakatMaal({ nisab: NISAB, savings: ZAKAT_INPUT_MAX, goldAndInvestments: ZAKAT_INPUT_MAX, tradeAssets: ZAKAT_INPUT_MAX, debtsDue: 0 }).amount,
+    ).toBe(750_000_000_000);
+    expect(() => calculateZakatPenghasilan({ nisab: NISAB, monthlyIncome: ZAKAT_INPUT_MAX + 1, otherMonthlyIncome: 0 })).toThrow(/Rp10\.000\.000\.000\.000/);
+    expect(() => calculateZakatMaal({ nisab: NISAB, savings: 0, goldAndInvestments: 0, tradeAssets: 0, debtsDue: ZAKAT_INPUT_MAX + 1 })).toThrow();
   });
 });

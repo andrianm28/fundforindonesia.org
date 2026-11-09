@@ -28,12 +28,15 @@ export type ZakatTransactionRow = {
 
 type Db = Pick<PrismaClient, "donation">;
 
-/** Donations on zakat Campaigns made in the WIB months `from` to `to` (both inclusive, 'YYYY-MM'), oldest first. */
+/** Donations on zakat Campaigns paid (else made) in the WIB months `from` to `to` (both inclusive, 'YYYY-MM'), oldest first. */
 export async function zakatTransactions(db: Db, range: { from: string; to: string }): Promise<ZakatTransactionRow[]> {
   const { from, toExclusive } = parseRecapPeriod(range.from, range.to);
   const donations = await db.donation.findMany({
-    where: { campaign: { kind: "ZAKAT" }, createdAt: { gte: from, lt: toExclusive } },
-    orderBy: { createdAt: "asc" },
+    // Wide enough for both dates a row can show; the exact cut is made below on the date it shows.
+    where: {
+      campaign: { kind: "ZAKAT" },
+      OR: [{ createdAt: { gte: from, lt: toExclusive } }, { payments: { some: { paidAt: { gte: from, lt: toExclusive } } } }],
+    },
     select: {
       id: true,
       amount: true,
@@ -48,7 +51,7 @@ export async function zakatTransactions(db: Db, range: { from: string; to: strin
       payments: { select: { sandbox: true, paidAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
-  return donations.map((d) => {
+  const rows = donations.map((d) => {
     const payment = d.payments[0];
     const named = !d.isAnonymous && d.anonymisedAt === null;
     return {
@@ -63,6 +66,10 @@ export async function zakatTransactions(db: Db, range: { from: string; to: strin
       sandbox: payment?.sandbox ?? false,
     };
   });
+  // The month filter and the order follow the date the report displays (paidAt).
+  return rows
+    .filter((r) => r.paidAt.getTime() >= from.getTime() && r.paidAt.getTime() < toExclusive.getTime())
+    .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
 }
 
 const HEADERS = [

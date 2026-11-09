@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { resolveOperations } from "@/lib/operations";
+import { countedPaymentWhere } from "@/lib/money/counted-payment";
 import { formatRupiah } from "@/lib/utils/currency";
 
 /**
@@ -69,25 +70,36 @@ export class ZakatDistributionExceedsReceivedError extends Error {
   }
 }
 
-type Db = Pick<PrismaClient, "donation" | "zakatDistribution">;
+type Db = Pick<PrismaClient, "donation" | "refund" | "zakatDistribution">;
 
 /** What the institution received as zakat, what has been recorded as distributed, and the difference. */
 export async function zakatPosition(
   db: Db,
   organisationId: string,
 ): Promise<{ received: number; distributed: number; remaining: number }> {
-  const [received, distributed] = await Promise.all([
+  const zakatOf = { kind: "ZAKAT", collectingEntityId: organisationId } as const;
+  const [received, refunded, distributed] = await Promise.all([
     db.donation.aggregate({
       where: {
         paymentStatus: "confirmed",
-        payments: { none: { sandbox: true } },
-        campaign: { kind: "ZAKAT", collectingEntityId: organisationId },
+        payments: { some: countedPaymentWhere() },
+        campaign: zakatOf,
+      },
+      _sum: { amount: true },
+    }),
+    // A Refund hands money back to the muzaki. Donation.paymentStatus stays
+    // "confirmed" through any Refund (the Payment turns REFUNDED only on a full
+    // one), so Refund rows that are approved or paid are subtracted.
+    db.refund.aggregate({
+      where: {
+        status: { in: ["APPROVED", "PROCESSING", "COMPLETED"] },
+        payment: { ...countedPaymentWhere(), donation: { campaign: zakatOf } },
       },
       _sum: { amount: true },
     }),
     db.zakatDistribution.aggregate({ where: { organisationId }, _sum: { amount: true } }),
   ]);
-  const r = received._sum.amount ?? 0;
+  const r = Math.max(0, (received._sum.amount ?? 0) - (refunded._sum.amount ?? 0));
   const d = distributed._sum.amount ?? 0;
   return { received: r, distributed: d, remaining: r - d };
 }

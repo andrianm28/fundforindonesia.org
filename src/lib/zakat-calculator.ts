@@ -12,6 +12,15 @@
 
 export const ZAKAT_RATE_PERCENT = 2.5;
 
+/**
+ * The most one input may be, in rupiah (Rp10 triliun, far above any real
+ * wealth figure). It keeps every sum of four inputs and its product with the
+ * rate far inside the safe integer range (4e13 * 25 = 1e15 < 9.007e15), so a
+ * pasted absurd number is refused rather than silently losing precision.
+ */
+export const ZAKAT_INPUT_MAX = 10_000_000_000_000;
+export const ZAKAT_INPUT_MAX_MESSAGE = 'tidak boleh lebih dari Rp10.000.000.000.000';
+
 export type ZakatResult = {
   /** Whether the base reaches the threshold. */
   obligatory: boolean;
@@ -27,6 +36,7 @@ function wholeRupiah(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${label} harus berupa bilangan bulat rupiah, tidak negatif.`);
   }
+  if (value > ZAKAT_INPUT_MAX) throw new Error(`${label} ${ZAKAT_INPUT_MAX_MESSAGE}.`);
   return value;
 }
 

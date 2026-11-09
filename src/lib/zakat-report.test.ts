@@ -106,9 +106,11 @@ describe('zakatTransactions', () => {
       expect.objectContaining({
         where: {
           campaign: { kind: 'ZAKAT' },
-          createdAt: { gte: new Date('2026-10-31T17:00:00.000Z'), lt: new Date('2026-11-30T17:00:00.000Z') },
+          OR: [
+            { createdAt: { gte: new Date('2026-10-31T17:00:00.000Z'), lt: new Date('2026-11-30T17:00:00.000Z') } },
+            { payments: { some: { paidAt: { gte: new Date('2026-10-31T17:00:00.000Z'), lt: new Date('2026-11-30T17:00:00.000Z') } } } },
+          ],
         },
-        orderBy: { createdAt: 'asc' },
       }),
     );
     expect(rows).toEqual([
@@ -116,6 +118,31 @@ describe('zakatTransactions', () => {
       // Anonymous on the Campaign page means anonymous here too; a missing entity is blank, not a crash.
       expect.objectContaining({ donationId: 'don-2', donorName: null, recipientName: '', sandbox: true }),
     ]);
+  });
+
+  it('keeps a Donation by the date the report shows (when it was paid), not when it was created', async () => {
+    const base = {
+      amount: 1000,
+      paymentStatus: 'confirmed',
+      paymentMethod: 'qris',
+      isAnonymous: false,
+      anonymisedAt: null,
+      guestName: null,
+      donor: null,
+      campaign: { title: 'Z', collectingEntity: null },
+    };
+    const findMany = vi.fn(async () => [
+      // Created in November, paid in December: shown as December, so not in the November report.
+      { ...base, id: 'late', createdAt: new Date('2026-11-29T01:00:00.000Z'), payments: [{ sandbox: false, paidAt: new Date('2026-12-02T01:00:00.000Z') }] },
+      // Created at the end of October, paid in November: shown as November, so in it.
+      { ...base, id: 'early', createdAt: new Date('2026-10-31T16:00:00.000Z'), payments: [{ sandbox: false, paidAt: new Date('2026-11-02T01:00:00.000Z') }] },
+      // Never paid: shown by its creation date.
+      { ...base, id: 'unpaid', createdAt: new Date('2026-11-01T01:00:00.000Z'), payments: [] },
+    ]);
+
+    const rows = await zakatTransactions({ donation: { findMany } } as never, { from: '2026-11', to: '2026-11' });
+
+    expect(rows.map((r) => r.donationId)).toEqual(['unpaid', 'early']);
   });
 
   it('shows the name of neither an anonymised Donor nor a Guest Donor who asked to stay anonymous', async () => {
