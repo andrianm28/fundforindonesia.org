@@ -106,7 +106,7 @@ export const authOptions: NextAuthOptions = {
         // Admin and Verifier sign in only by mailed code: it stands in for
         // MFA (owner, 9 Nov 2026; PKS Pasal 8(1); ADR 0026), and a password
         // would walk around it. Checked after the password, so a stranger
-        // learns nothing about the account's role.
+        // learns nothing about the account's Assignments.
         if (user.assignments?.length) {
           throw new Error(OPERATOR_CODE_ONLY_MESSAGE);
         }
