@@ -5,6 +5,9 @@ import { Assignment, type Kind, type PrismaClient } from "@/generated/prisma/cli
 import { hasAssignment } from "./assignment";
 import { sniffImageType } from "./uploads";
 import { DOCUMENT_UPLOADABLE_STATUSES } from "./document-uploadable-statuses";
+import { requireFieldKeys } from "./contact-fields";
+import { organisationOf } from "./collecting-entity-guard";
+import { DocumentIntegrityError, isSealedDocument, openDocumentBytes, sealDocumentBytes } from "./document-encryption";
 
 export { DOCUMENT_UPLOADABLE_STATUSES };
 
@@ -19,6 +22,14 @@ export { DOCUMENT_UPLOADABLE_STATUSES };
  * No signed URL, no object storage SDK: a link is only as good as the session
  * that opens it.
  *
+ * A third kind (PKS Pasal 4.5): a supporting paper for a Payout request, readable
+ * by its uploader (the Payout's Fundraiser) and an Admin only.
+ *
+ * A fourth (PKS Pasal 3.6, pks-pemenuhan/17): the proposal PDF of a Partnership
+ * Inquiry, readable by an Admin and by the Tim CSR member who uploaded it. A
+ * company on the public form has no account, so such a document may have no
+ * uploader at all; then only an Admin can open it.
+ *
  * Who may open one (`canReadDocument`): its uploader, an Admin, and
  *   - for a Campaign document: the Campaign's Fundraiser, and a Verifier while
  *     the Campaign has a Verification Request open, or who decided one of its
@@ -27,6 +38,11 @@ export { DOCUMENT_UPLOADABLE_STATUSES };
  *     checking organisations is the Verifier's own queue) and the
  *     organisation's linked Fundraiser account.
  * Everyone else gets the same 404 as a document that does not exist.
+ *
+ * The bytes are sealed at rest (ticket 14, `document-encryption.ts`): AES-256-GCM
+ * under the field-encryption key, opened again only here, behind the ACL. A
+ * file with no header predates that and is served as is; a sealed file that
+ * fails verification throws, so the route answers 500 and never serves garbage.
  *
  * Documents are never deleted: a rejected submission's papers are still
  * someone's identity documents and are kept, just never public (decision 03).
@@ -106,9 +122,11 @@ export type DocumentViewer = { id: string; assignments: Assignment[] | undefined
 
 /** The document fields the ACL needs, with the owner's own facts. */
 type DocumentForAcl = {
-  uploadedById: string;
+  uploadedById: string | null;
   campaignId: string | null;
   partnerOrganisationId: string | null;
+  payoutId?: string | null;
+  partnershipInquiryId?: string | null;
 };
 
 /**
@@ -123,6 +141,22 @@ export async function canReadDocument(
 ): Promise<boolean> {
   if (document.uploadedById === viewer.id) return true;
   if (hasAssignment(viewer.assignments, Assignment.ADMIN)) return true;
+
+  // A Partnership Inquiry's proposal (PKS Pasal 3.6): the uploader and an
+  // Admin, both settled above, and nobody else. Not a Verifier.
+  if (document.partnershipInquiryId) return false;
+
+  // A Payout's supporting paper (PKS Pasal 4.5) is bank and money material:
+  // its uploader, the Payout's Fundraiser and an Admin, and nobody else. Not a
+  // Verifier: they have no part in a Payout.
+  if (document.payoutId) {
+    const payout = await prisma.payout.findUnique({
+      where: { id: document.payoutId },
+      select: { requestedById: true },
+    });
+    return payout?.requestedById === viewer.id;
+  }
+
   const verifier = hasAssignment(viewer.assignments, Assignment.VERIFIER);
 
   if (document.campaignId) {
@@ -178,6 +212,11 @@ export async function campaignDocuments(prisma: PrismaClient, campaignId: string
   return prisma.document.findMany({ where: { campaignId }, select: SUMMARY, orderBy: { uploadedAt: "asc" } });
 }
 
+/** The supporting papers of a Payout, oldest first (the ACL is the route's, not this list's). */
+export async function payoutDocuments(prisma: PrismaClient, payoutId: string): Promise<DocumentSummary[]> {
+  return prisma.document.findMany({ where: { payoutId }, select: SUMMARY, orderBy: { uploadedAt: "asc" } });
+}
+
 export async function partnerOrganisationDocuments(
   prisma: PrismaClient,
   partnerOrganisationId: string
@@ -189,10 +228,23 @@ export async function partnerOrganisationDocuments(
   });
 }
 
-/** The active checklist items of a Kind that need a document: what an upload form offers. */
-export async function documentChecklistItems(prisma: PrismaClient, kind: Kind) {
+/**
+ * The active checklist items of a Kind that need a document: what an upload
+ * form offers. Papers are uploaded ahead of a SUBMISSION, so only items asked
+ * on one, and only those for this Fundraiser's applicant type (pks-pemenuhan/08).
+ */
+export async function documentChecklistItems(prisma: PrismaClient, kind: Kind, creatorId: string) {
+  const applicant = (await organisationOf(prisma, creatorId)) ? "ORGANISATION" : "INDIVIDUAL";
   return prisma.verificationChecklistItem.findMany({
-    where: { active: true, requiresDocument: true, OR: [{ kind: null }, { kind }] },
+    where: {
+      active: true,
+      requiresDocument: true,
+      AND: [
+        { OR: [{ kind: null }, { kind }] },
+        { OR: [{ applicant: null }, { applicant }] },
+        { requestKinds: { has: "SUBMISSION" } },
+      ],
+    },
     orderBy: { position: "asc" },
     select: { id: true, label: true, required: true },
   });
@@ -200,7 +252,8 @@ export async function documentChecklistItems(prisma: PrismaClient, kind: Kind) {
 
 export type DocumentTarget =
   | { campaignId: string; checklistItemId: string }
-  | { partnerOrganisationId: string; label: string };
+  | { partnerOrganisationId: string; label: string }
+  | { payoutId: string; label: string };
 
 type FileInput = { bytes: Uint8Array; declaredType: string; size: number };
 
@@ -221,6 +274,24 @@ export function validateDocumentFile(file: FileInput): DocumentContentType {
 }
 
 /**
+ * A Payout takes a paper only from the Fundraiser who requested it, and only
+ * while it can still be judged or revised. Anyone else gets the "missing"
+ * answer, so the id's existence leaks nothing. Shared by the early check and
+ * the re-check under the row lock.
+ */
+function assertPayoutTakesPapers(
+  payout: { requestedById: string; status: string } | null | undefined,
+  actorId: string
+): void {
+  if (!payout || payout.requestedById !== actorId) {
+    throw new DocumentRefusedError("Pencairan tidak ditemukan.", 404);
+  }
+  if (payout.status !== "DRAFT" && payout.status !== "REVISION_REQUESTED") {
+    throw new DocumentRefusedError("Pencairan ini sudah diproses dan tidak menerima dokumen baru.", 409);
+  }
+}
+
+/**
  * Works out what the upload is for and whether `actor` may add it, returning
  * the label to store. A Campaign document: only its Fundraiser, in a status
  * that still takes papers, for an active document item of the Campaign's Kind.
@@ -231,7 +302,31 @@ async function authorise(
   prisma: PrismaClient,
   actor: DocumentViewer,
   target: DocumentTarget
-): Promise<{ label: string; campaignId: string | null; partnerOrganisationId: string | null; checklistItemId: string | null }> {
+): Promise<{
+  label: string;
+  campaignId: string | null;
+  partnerOrganisationId: string | null;
+  payoutId: string | null;
+  checklistItemId: string | null;
+}> {
+  if ("payoutId" in target) {
+    // Only the Fundraiser who requested the Payout, and only while it can
+    // still be judged or revised: after approval or rejection the papers are
+    // what the decision rested on. Anyone else, an Admin included (an Admin
+    // reads these papers, never adds them), gets the same "missing" answer.
+    const payout = await prisma.payout.findUnique({
+      where: { id: target.payoutId },
+      select: { id: true, requestedById: true, status: true },
+    });
+    assertPayoutTakesPapers(payout, actor.id);
+    const label = typeof target.label === "string" ? target.label.trim() : "";
+    if (label === "") throw new DocumentRefusedError("Nama dokumen wajib diisi.", 400);
+    if (label.length > MAX_DOCUMENT_LABEL_LENGTH) {
+      throw new DocumentRefusedError(`Nama dokumen paling panjang ${MAX_DOCUMENT_LABEL_LENGTH} karakter.`, 400);
+    }
+    return { label, campaignId: null, partnerOrganisationId: null, payoutId: target.payoutId, checklistItemId: null };
+  }
+
   if ("campaignId" in target) {
     const campaign = await prisma.campaign.findUnique({
       where: { id: target.campaignId },
@@ -250,7 +345,7 @@ async function authorise(
     if (!item || !item.active || !item.requiresDocument || (item.kind !== null && item.kind !== campaign.kind)) {
       throw new DocumentRefusedError("Jenis dokumen tidak berlaku untuk Campaign ini.", 400);
     }
-    return { label: item.label, campaignId: campaign.id, partnerOrganisationId: null, checklistItemId: item.id };
+    return { label: item.label, campaignId: campaign.id, partnerOrganisationId: null, payoutId: null, checklistItemId: item.id };
   }
 
   if (
@@ -269,7 +364,7 @@ async function authorise(
     select: { id: true },
   });
   if (!organisation) throw new DocumentRefusedError("Lembaga Mitra tidak ditemukan.", 404);
-  return { label, campaignId: null, partnerOrganisationId: organisation.id, checklistItemId: null };
+  return { label, campaignId: null, partnerOrganisationId: organisation.id, payoutId: null, checklistItemId: null };
 }
 
 /**
@@ -288,35 +383,157 @@ export async function uploadDocument(
   const contentType = validateDocumentFile(params.file);
   const owner = await authorise(prisma, params.actor, params.target);
 
+  // Never fall back to plaintext: without a key the document is not stored.
+  let keys: ReturnType<typeof requireFieldKeys>;
+  try {
+    keys = requireFieldKeys();
+  } catch (error) {
+    console.error("Document upload refused: field encryption is not configured", error);
+    throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+  }
+
+  return persistDocument(prisma, {
+    root,
+    keys,
+    bytes: params.file.bytes,
+    contentType,
+    uploadedById: params.actor.id,
+    owner,
+  });
+}
+
+type Owner = {
+  label: string;
+  campaignId: string | null;
+  partnerOrganisationId: string | null;
+  payoutId: string | null;
+  partnershipInquiryId?: string | null;
+  checklistItemId: string | null;
+};
+
+/** Seals the bytes under a fresh random name, then records the row; the file goes if the row fails. */
+async function persistDocument(
+  prisma: PrismaClient,
+  params: {
+    root: string;
+    keys: ReturnType<typeof requireFieldKeys>;
+    bytes: Uint8Array;
+    contentType: DocumentContentType;
+    uploadedById: string | null;
+    owner: Owner;
+  },
+): Promise<DocumentSummary> {
+  const { root, keys, owner } = params;
   const storagePath = newStoragePath();
   const full = absoluteStoragePath(root, storagePath)!;
+  const sealed = sealDocumentBytes(keys, storagePath, params.bytes);
   await mkdir(dirname(full), { recursive: true, mode: 0o700 });
   try {
-    await writeFile(full, params.file.bytes, { mode: 0o600, flag: "wx" });
+    await writeFile(full, sealed, { mode: 0o600, flag: "wx" });
   } catch (error) {
     // A half-written file is ours to remove; an existing one (EEXIST) is not.
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") await unlink(full).catch(() => undefined);
     throw error;
   }
 
+  const data = {
+    uploadedById: params.uploadedById,
+    campaignId: owner.campaignId,
+    partnerOrganisationId: owner.partnerOrganisationId,
+    payoutId: owner.payoutId,
+    partnershipInquiryId: owner.partnershipInquiryId ?? null,
+    checklistItemId: owner.checklistItemId,
+    label: owner.label,
+    contentType: params.contentType,
+    sizeBytes: params.bytes.byteLength,
+    storagePath,
+  };
   try {
-    return await prisma.document.create({
-      data: {
-        uploadedById: params.actor.id,
-        campaignId: owner.campaignId,
-        partnerOrganisationId: owner.partnerOrganisationId,
-        checklistItemId: owner.checklistItemId,
-        label: owner.label,
-        contentType,
-        sizeBytes: params.file.bytes.byteLength,
-        storagePath,
-      },
-      select: SUMMARY,
-    });
+    if (owner.payoutId) {
+      // The Payout can be approved or rejected between the check above and
+      // this insert. Re-read it under its row lock, in the insert's own
+      // transaction: a decision either committed first (refused here) or waits
+      // for this commit, so no paper lands on a decided Payout.
+      const payoutId = owner.payoutId;
+      const uploaderId = params.uploadedById ?? "";
+      return await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ requestedById: string; status: string }>>`SELECT "requestedById", status::text AS status FROM "Payout" WHERE id = ${payoutId} FOR UPDATE`;
+        assertPayoutTakesPapers(rows[0], uploaderId);
+        return tx.document.create({ data, select: SUMMARY });
+      });
+    }
+    return await prisma.document.create({ data, select: SUMMARY });
   } catch (error) {
     await unlink(full).catch(() => undefined);
     throw error;
   }
+}
+
+/** The label a proposal is stored under. */
+export const INQUIRY_PROPOSAL_LABEL = "Proposal kolaborasi";
+
+/**
+ * Whether a proposal could be stored, answered before anything is written: the
+ * store is configured and the file is a PDF by its bytes. The Inquiry's create
+ * path calls it ahead of its own write so that a bad attachment leaves no
+ * Inquiry behind.
+ */
+export function assertInquiryProposalAcceptable(file: FileInput, root: string | null | undefined = undefined): void {
+  const where = root === undefined ? documentRoot() : root;
+  if (!where) throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+  if (validateDocumentFile(file) !== "application/pdf") {
+    throw new DocumentRefusedError("Proposal harus berupa berkas PDF.", 415);
+  }
+}
+
+/**
+ * Stores the proposal PDF of a Partnership Inquiry (PKS Pasal 3.6). `uploadedById`
+ * is the Tim CSR member's own id, or null for the public form, which has no
+ * account. PDF only: a proposal is a document, not a picture, and the bytes
+ * must be a PDF whatever the browser claimed. The caller (the Inquiry's own
+ * create path) has already authorised the write; this checks the file, the
+ * Inquiry and the store, and answers a DocumentRefusedError for each.
+ */
+export async function uploadInquiryProposal(
+  prisma: PrismaClient,
+  params: { inquiryId: string; uploadedById: string | null; file: FileInput; root?: string | null },
+): Promise<DocumentSummary> {
+  const root = params.root === undefined ? documentRoot() : params.root;
+  if (!root) throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+
+  const contentType = validateDocumentFile(params.file);
+  if (contentType !== "application/pdf") {
+    throw new DocumentRefusedError("Proposal harus berupa berkas PDF.", 415);
+  }
+  const inquiry = await prisma.partnershipInquiry.findUnique({
+    where: { id: params.inquiryId },
+    select: { id: true },
+  });
+  if (!inquiry) throw new DocumentRefusedError("Partnership Inquiry tidak ditemukan.", 404);
+
+  let keys: ReturnType<typeof requireFieldKeys>;
+  try {
+    keys = requireFieldKeys();
+  } catch (error) {
+    console.error("Proposal upload refused: field encryption is not configured", error);
+    throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+  }
+
+  return persistDocument(prisma, {
+    root,
+    keys,
+    bytes: params.file.bytes,
+    contentType,
+    uploadedById: params.uploadedById,
+    owner: {
+      label: INQUIRY_PROPOSAL_LABEL,
+      campaignId: null,
+      partnerOrganisationId: null,
+      payoutId: null,
+      partnershipInquiryId: inquiry.id,
+      checklistItemId: null,
+    },
+  });
 }
 
 /**
@@ -335,6 +552,8 @@ export async function readDocument(
       uploadedById: true,
       campaignId: true,
       partnerOrganisationId: true,
+      payoutId: true,
+      partnershipInquiryId: true,
       contentType: true,
       storagePath: true,
     },
@@ -346,10 +565,29 @@ export async function readDocument(
   if (!root) return null;
   const full = absoluteStoragePath(root, document.storagePath);
   if (!full) return null;
+  let stored: Buffer;
   try {
-    return { id: document.id, contentType: document.contentType, bytes: await readFile(full) };
+    stored = await readFile(full);
   } catch {
     console.error(`Document ${document.id}: stored file is missing or unreadable`);
     return null;
   }
+  // The header decides: only a sealed file needs the keyring, so legacy
+  // plaintext is still served with no key configured.
+  if (isSealedDocument(stored)) {
+    // Throws DocumentIntegrityError for a sealed file that does not verify (or
+    // a missing key): the caller answers 500, never the bytes.
+    return {
+      id: document.id,
+      contentType: document.contentType,
+      bytes: openDocumentBytes(requireFieldKeys(), document.storagePath, stored),
+    };
+  }
+  // A legacy file gets the sniff an upload gets: it is served only if it is
+  // the type on record.
+  if (sniffDocumentType(stored) !== document.contentType) {
+    console.error(`Document ${document.id}: legacy plaintext file is not the type on record`);
+    throw new DocumentIntegrityError(`Stored document ${document.storagePath} failed verification: content type mismatch`);
+  }
+  return { id: document.id, contentType: document.contentType, bytes: stored };
 }

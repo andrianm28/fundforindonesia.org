@@ -15,6 +15,7 @@ import {
 } from "./campaign-lifecycle-errors";
 import { exceedsMaxDuration, missingRequiredDeadline } from "./campaign-kind";
 import { judgeCapacity } from "./capacity";
+import { zakatSwitchedOn, type OperationsDb } from "./operations";
 import { PAYOUT_REQUESTABLE_STATUSES } from "./payout-requestable-statuses";
 import type { LedgerSubject } from "./money/ledger";
 
@@ -60,6 +61,8 @@ export type SubjectState =
       deadline: Date | null;
       /** The Partner Organisation it collects under (ADR 0010), or null. */
       collectingEntityId: string | null;
+      /** A Verifier rejected it for good (PKS pasal 3.4): it can no longer be edited or submitted. */
+      rejectionFinal?: boolean;
     }
   | {
       kind: "trip";
@@ -232,11 +235,13 @@ export async function catalogueDemoWhere(
  * cannot end up showing fiction by forgetting an argument.
  */
 export async function listableCampaignWhere(
-  db: CatalogueDb,
+  db: CatalogueDb & OperationsDb,
   now: Date,
   options: { includeDemo?: boolean } = {}
 ): Promise<Prisma.CampaignWhereInput> {
-  return { AND: [await catalogueDemoWhere(db, now, options), effectivelyActiveWhere(now)] };
+  // A zakat Campaign is listed only while the zakat module is on (ADR 0028).
+  const zakatHidden: Prisma.CampaignWhereInput[] = (await zakatSwitchedOn(db)) ? [] : [{ kind: { not: 'ZAKAT' } }];
+  return { AND: [await catalogueDemoWhere(db, now, options), effectivelyActiveWhere(now), ...zakatHidden] };
 }
 
 /** The effective statuses whose Campaign pages the sitemap lists. */
@@ -285,6 +290,7 @@ export async function lockAndLoad(
         deadline: true,
         kind: true,
         collectingEntityId: true,
+        rejectionFinal: true,
       },
     });
     if (!campaign) return null;
@@ -297,6 +303,7 @@ export async function lockAndLoad(
       campaignKind: campaign.kind,
       deadline: campaign.deadline,
       collectingEntityId: campaign.collectingEntityId,
+      rejectionFinal: campaign.rejectionFinal,
     };
   }
   const id = subject.tripId;
@@ -379,6 +386,15 @@ export class CampaignNotEditableError extends CampaignLifecycleError {
   }
 }
 
+/** A content edit refused because a Verifier rejected the Campaign for good (PKS pasal 3.4). */
+export class RejectedFinalNotEditableError extends CampaignLifecycleError {
+  readonly code = "REJECTED_FINAL";
+  constructor() {
+    super("Campaign ini ditolak secara final oleh Verifier dan tidak dapat diubah lagi.");
+    this.name = "RejectedFinalNotEditableError";
+  }
+}
+
 /**
  * Passes only for a Campaign that is effectively Draft, Rejected or Active,
  * so an Active Campaign past its deadline refuses as Expired. Judge it on
@@ -388,6 +404,7 @@ export class CampaignNotEditableError extends CampaignLifecycleError {
  */
 export function requireContentEditable(state: SubjectState): void {
   if (state.kind !== "campaign") return;
+  if (state.rejectionFinal === true) throw new RejectedFinalNotEditableError();
   if (!CONTENT_EDITABLE_STATUSES.includes(state.effectiveStatus)) {
     throw new CampaignNotEditableError(state.effectiveStatus);
   }

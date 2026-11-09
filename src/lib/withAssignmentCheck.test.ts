@@ -6,7 +6,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { getServerSession } from "@/lib/auth";
-import { withAssignmentCheck, withHiddenAssignmentCheck } from "./withAssignmentCheck";
+import { withAssignmentCheck, withHiddenAnyAssignmentCheck, withHiddenAssignmentCheck } from "./withAssignmentCheck";
 
 const mockGetServerSession = vi.mocked(getServerSession);
 
@@ -161,6 +161,36 @@ describe("withHiddenAssignmentCheck", () => {
     const handler = vi.fn().mockResolvedValue(NextResponse.json({ ok: true }));
     const response = await withHiddenAssignmentCheck("ADMIN", handler)(createMockRequest());
     expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+});
+
+describe("withHiddenAnyAssignmentCheck", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const guarded = (handler: ReturnType<typeof vi.fn>) =>
+    withHiddenAnyAssignmentCheck(["VERIFIER", "ADMIN"], handler as never);
+
+  it("returns 401 when no session exists", async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    const handler = vi.fn();
+    expect((await guarded(handler)(createMockRequest())).status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 to a signed-in user holding neither assignment", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "user-1", assignments: [] } } as never);
+    const handler = vi.fn();
+    expect((await guarded(handler)(createMockRequest())).status).toBe(404);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each(["VERIFIER", "ADMIN"])("lets a holder of %s alone through", async (assignment) => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "user-1", assignments: [assignment] } } as Session);
+    const handler = vi.fn().mockResolvedValue(NextResponse.json({ ok: true }));
+    expect((await guarded(handler)(createMockRequest())).status).toBe(200);
     expect(handler).toHaveBeenCalledOnce();
   });
 });

@@ -44,6 +44,8 @@ export default async function ManageCampaignPage({ params }: PageProps) {
       title: true,
       story: true,
       coverImage: true,
+      galleryImages: true,
+      rejectionFinal: true,
       kind: true,
       targetAmount: true,
       category: true,
@@ -55,6 +57,7 @@ export default async function ManageCampaignPage({ params }: PageProps) {
       regency: true,
       beneficiaryDescription: true,
       beneficiaryCount: true,
+      beneficiaryRelationship: true,
     },
   });
   if (!campaign || campaign.creatorId !== session.user.id) {
@@ -62,7 +65,9 @@ export default async function ManageCampaignPage({ params }: PageProps) {
   }
 
   const status = effectiveStatus(campaign, new Date());
-  const editable = SUBMITTABLE_STATUSES.includes(status);
+  // A Campaign the Verifier rejected for good cannot be edited or submitted again (PKS pasal 3.4).
+  const rejectedForGood = status === 'REJECTED' && campaign.rejectionFinal;
+  const editable = SUBMITTABLE_STATUSES.includes(status) && !rejectedForGood;
   const canRequestChange = status === 'ACTIVE';
 
   const [category, waitingChange, updateCount, waitingCancellation] = await Promise.all([
@@ -83,7 +88,7 @@ export default async function ManageCampaignPage({ params }: PageProps) {
         </Link>
         <div className="flex items-start justify-between gap-2 mt-2">
           <h1 className="text-white text-lg font-semibold">Kelola Campaign</h1>
-          <CampaignStatusBadge status={status} />
+          <CampaignStatusBadge status={status} rejectionFinal={campaign.rejectionFinal} />
         </div>
         <p className="text-white/80 text-sm mt-1 line-clamp-2">{campaign.title}</p>
       </div>
@@ -98,11 +103,13 @@ export default async function ManageCampaignPage({ params }: PageProps) {
               story: campaign.story,
               deadline,
               coverImage: campaign.coverImage,
+              galleryImages: campaign.galleryImages,
               collectingEntityId: campaign.collectingEntityId ?? '',
               province: campaign.province ?? '',
               regency: campaign.regency ?? '',
               beneficiaryDescription: campaign.beneficiaryDescription ?? '',
               beneficiaryCount: campaign.beneficiaryCount?.toString() ?? '',
+              beneficiaryRelationship: campaign.beneficiaryRelationship ?? '',
             }}
             targetAmount={campaign.targetAmount}
             categoryName={category?.name ?? campaign.category}
@@ -143,7 +150,9 @@ export default async function ManageCampaignPage({ params }: PageProps) {
           <p data-testid="manage-not-editable" className="bg-white rounded-xl shadow-xs p-4 text-sm text-text-secondary">
             {status === 'SUBMITTED'
               ? 'Campaign sedang diperiksa Verifier dan tidak dapat diedit. Pengajuannya harus ditarik dulu dari Galang Dana Saya; setelah itu ia kembali menjadi Draft dan dapat diedit.'
-              : 'Campaign dengan status ini tidak dapat diedit.'}
+              : rejectedForGood
+                ? 'Campaign ini ditolak secara final oleh Verifier dan tidak dapat diedit atau diajukan ulang. Buat Campaign baru bila perlu.'
+                : 'Campaign dengan status ini tidak dapat diedit.'}
           </p>
         )}
       </div>

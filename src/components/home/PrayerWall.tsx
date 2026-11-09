@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePrayerStream, PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { getRelativeTimestamp } from '@/lib/utils/date';
+import { useAamiin } from '@/lib/hooks/useAamiin';
 
 export interface PrayerWallProps {
   initialPrayers: PrayerStreamItem[];
@@ -32,56 +33,11 @@ export function PrayerWall({
   });
 
   const [showAll, setShowAll] = useState(false);
-  const [amiinStates, setAmiinStates] = useState<Record<string, number>>({});
-  const [animatingAmiin, setAnimatingAmiin] = useState<Record<string, boolean>>({});
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const amiin = useAamiin(prayers);
+  const toastMessage = amiin.toastMessage;
 
   const visiblePrayers = showAll ? prayers : prayers.slice(0, maxVisible);
   const hasMore = prayers.length > maxVisible;
-
-  // Get the amiin count for a prayer (optimistic or original)
-  const getAmiinCount = useCallback(
-    (prayer: PrayerStreamItem) => {
-      return amiinStates[prayer.id] ?? prayer.amiinCount;
-    },
-    [amiinStates]
-  );
-
-  // Show toast notification
-  const showToast = useCallback((message: string) => {
-    setToastMessage(message);
-    setTimeout(() => setToastMessage(null), 3000);
-  }, []);
-
-  // Handle amiin button click with optimistic update
-  const handleAmiin = useCallback(
-    async (prayerId: string, currentCount: number) => {
-      // Optimistic increment
-      const newCount = currentCount + 1;
-      setAmiinStates((prev) => ({ ...prev, [prayerId]: newCount }));
-
-      // Trigger pulse animation
-      setAnimatingAmiin((prev) => ({ ...prev, [prayerId]: true }));
-      setTimeout(() => {
-        setAnimatingAmiin((prev) => ({ ...prev, [prayerId]: false }));
-      }, 600);
-
-      try {
-        const res = await fetch(`/api/prayers/${prayerId}/amiin`, {
-          method: 'POST',
-        });
-
-        if (!res.ok) {
-          throw new Error('Failed to amiin');
-        }
-      } catch {
-        // Revert on failure
-        setAmiinStates((prev) => ({ ...prev, [prayerId]: currentCount }));
-        showToast('Gagal mengirim Aamiin. Coba lagi.');
-      }
-    },
-    [showToast]
-  );
 
   return (
     <section className="w-full" aria-label="Prayer Wall">
@@ -101,10 +57,11 @@ export function PrayerWall({
             <PrayerCard
               key={prayer.id}
               prayer={prayer}
-              amiinCount={getAmiinCount(prayer)}
-              isAnimating={animatingAmiin[prayer.id] ?? false}
+              amiinCount={amiin.countOf(prayer)}
+              isAnimating={amiin.isAnimating(prayer.id)}
+              isGiven={amiin.isGiven(prayer.id)}
               showCampaignLink={showCampaignLink}
-              onAmiin={() => handleAmiin(prayer.id, getAmiinCount(prayer))}
+              onAmiin={() => amiin.give(prayer.id, amiin.countOf(prayer))}
             />
           ))}
         </AnimatePresence>
@@ -145,6 +102,7 @@ interface PrayerCardProps {
   prayer: PrayerStreamItem;
   amiinCount: number;
   isAnimating: boolean;
+  isGiven: boolean;
   showCampaignLink: boolean;
   onAmiin: () => void;
 }
@@ -153,6 +111,7 @@ function PrayerCard({
   prayer,
   amiinCount,
   isAnimating,
+  isGiven,
   showCampaignLink,
   onAmiin,
 }: PrayerCardProps) {
@@ -219,16 +178,18 @@ function PrayerCard({
         <div className="mt-2">
           <button
             onClick={onAmiin}
+            disabled={isGiven}
+            aria-pressed={isGiven}
             className={`
               inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium
-              border border-border hover:border-primary hover:text-primary
-              transition-all duration-150
+              border transition-all duration-150
+              ${isGiven ? 'border-primary text-primary bg-primary/10 cursor-default' : 'border-border hover:border-primary hover:text-primary'}
               ${isAnimating ? 'animate-amiin-pulse' : ''}
             `}
             aria-label={`Aamiin (${amiinCount})`}
           >
             <span className="text-sm">🤲</span>
-            <span>Aamiin</span>
+            <span>{isGiven ? 'Sudah Aamiin' : 'Aamiin'}</span>
             {amiinCount > 0 && (
               <span className="text-text-secondary">({amiinCount})</span>
             )}

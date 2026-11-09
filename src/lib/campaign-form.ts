@@ -1,6 +1,6 @@
 import { deadlineRequired, type CampaignKind } from '@/lib/campaign-kind';
 import { endOfWibDay } from '@/lib/utils/date';
-import { BENEFICIARY_COUNT_MAX, BENEFICIARY_DESCRIPTION_MAX, REGENCY_MAX } from '@/lib/campaign-location';
+import { BENEFICIARY_COUNT_MAX, BENEFICIARY_DESCRIPTION_MAX, BENEFICIARY_RELATIONSHIP_MAX, REGENCY_MAX } from '@/lib/campaign-location';
 import { isProvinceCode } from '@/lib/indonesia-provinces';
 
 /**
@@ -55,9 +55,22 @@ export function parseRupiahInput(value: string): number {
 }
 
 export const COVER_UPLOAD_ERROR = 'Gagal mengunggah gambar sampul. Silakan coba lagi.';
+export const GALLERY_UPLOAD_ERROR = 'Gagal mengunggah gambar galeri. Silakan coba lagi.';
 
 /** Uploads a cover image, returning its URL; throws the Indonesian refusal on failure. */
-export async function uploadCoverImage(file: File): Promise<string> {
+export function uploadCoverImage(file: File): Promise<string> {
+  return uploadImage(file, COVER_UPLOAD_ERROR);
+}
+
+/**
+ * Uploads one gallery image through the same route as the cover (/api/upload,
+ * which checks the bytes, not the declared type), returning its URL.
+ */
+export function uploadGalleryImage(file: File): Promise<string> {
+  return uploadImage(file, GALLERY_UPLOAD_ERROR);
+}
+
+async function uploadImage(file: File, failure: string): Promise<string> {
   const body = new FormData();
   body.append('file', file);
   let uploaded: { url?: string } | null = null;
@@ -67,7 +80,7 @@ export async function uploadCoverImage(file: File): Promise<string> {
   } catch {
     uploaded = null;
   }
-  if (!uploaded?.url) throw new Error(COVER_UPLOAD_ERROR);
+  if (!uploaded?.url) throw new Error(failure);
   return uploaded.url;
 }
 
@@ -88,6 +101,7 @@ export interface LocationFormValues {
   regency: string;
   beneficiaryDescription: string;
   beneficiaryCount: string;
+  beneficiaryRelationship: string;
 }
 
 export const EMPTY_LOCATION_FORM: LocationFormValues = {
@@ -95,17 +109,21 @@ export const EMPTY_LOCATION_FORM: LocationFormValues = {
   regency: '',
   beneficiaryDescription: '',
   beneficiaryCount: '',
+  beneficiaryRelationship: '',
 };
 
 export type LocationFormErrors = Partial<Record<keyof LocationFormValues, string>>;
 
-/** All four fields are optional; this only judges what was typed. */
+/** All five fields are optional; this only judges what was typed. */
 export function locationErrors(values: LocationFormValues): LocationFormErrors {
   const errors: LocationFormErrors = {};
   if (values.province && !isProvinceCode(values.province)) errors.province = 'Provinsi tidak dikenal';
   if (values.regency.trim().length > REGENCY_MAX) errors.regency = `Kabupaten/kota maksimal ${REGENCY_MAX} karakter`;
   if (values.beneficiaryDescription.trim().length > BENEFICIARY_DESCRIPTION_MAX) {
     errors.beneficiaryDescription = `Penerima manfaat maksimal ${BENEFICIARY_DESCRIPTION_MAX} karakter`;
+  }
+  if (values.beneficiaryRelationship.trim().length > BENEFICIARY_RELATIONSHIP_MAX) {
+    errors.beneficiaryRelationship = `Hubungan dengan penerima manfaat maksimal ${BENEFICIARY_RELATIONSHIP_MAX} karakter`;
   }
   const count = values.beneficiaryCount.trim();
   if (count && (!/^\d+$/.test(count) || Number(count) <= 0 || Number(count) > BENEFICIARY_COUNT_MAX)) {
@@ -122,5 +140,6 @@ export function locationPayload(values: LocationFormValues) {
     regency: values.regency.trim() || null,
     beneficiaryDescription: values.beneficiaryDescription.trim() || null,
     beneficiaryCount: count ? Number(count) : null,
+    beneficiaryRelationship: values.beneficiaryRelationship.trim() || null,
   };
 }

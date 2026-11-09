@@ -28,10 +28,11 @@ import { getServerSession } from '@/lib/auth';
 
 const mockSession = getServerSession as unknown as Mock;
 
-function post(): Promise<Response> {
+function post(body: unknown = { truthStatement: true }): Promise<Response> {
   const slug = 'bantu-korban-banjir';
   const req = new NextRequest(`http://localhost:3000/api/campaigns/${slug}/verification-requests`, {
     method: 'POST',
+    ...(body !== null && { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
   });
   return POST(req, { params: Promise.resolve({ slug }) });
 }
@@ -64,6 +65,18 @@ describe('POST /api/campaigns/[slug]/verification-requests', () => {
       isFirst: true,
       checklist: [{ id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 1, ticked: false }],
     });
+  });
+
+  it('refuses a submission without the ticked truth statement with 400 and opens no request (PKS pasal 3.3)', async () => {
+    mockSession.mockResolvedValue({ user: { id: 'creator-1', assignments: [] } });
+
+    for (const body of [null, {}, { truthStatement: false }]) {
+      const response = await post(body);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'VALIDATION' });
+    }
+    expect(state.db.verificationRequests).toEqual([]);
+    expect(state.db.campaign()).toMatchObject({ lifecycleStatus: 'DRAFT' });
   });
 
   it("refuses someone who is not the Campaign's Fundraiser with 403 NOT_AUTHORIZED", async () => {

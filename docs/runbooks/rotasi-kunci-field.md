@@ -28,3 +28,11 @@ Sejak deploy, baris lama tetap terbaca dan baris baru memakai key baru. Boleh be
 - **Belum ada skrip re-encrypt.** Baris lama tidak otomatis pindah ke key baru. Itu pekerjaan lanjutan; cek baris yang masih memakai id lama dengan `SELECT "emailKeyId", count(*) FROM "User" GROUP BY 1` (juga kolom `*KeyId` dan `*HmacKeyId` di tabel lain).
 - Klaim riwayat Guest Donor mencocokkan HMAC dari semua key (saat ini dan pensiun), jadi akun dan donasi tamu yang di-hash dengan key berbeda tetap saling cocok.
 - Anonimisasi Guest Donor mencocokkan email lewat key yang menyegel HMAC tersimpan, jadi tetap bekerja untuk baris lama.
+
+## Berkas dokumen privat (PKS 10(4), tiket 14)
+
+Isi berkas di `PRIVATE_DOCUMENT_DIR` disegel AES-256-GCM dengan key enkripsi yang sama (`FIELD_ENCRYPTION_KEY`), id key tersimpan di header berkas, dan AAD-nya `Document.file:<storagePath>`. Rotasi mengikuti aturan yang sama: key pensiun cukup tetap ada di `FIELD_ENCRYPTION_PREVIOUS_KEYS`. **Key pensiun jangan dibuang selama masih ada berkas yang menyebut id-nya** (periksa: `head -c 40 <berkas> | strings`; id ada setelah `FFIDOC1`).
+
+- Upload ditolak 503 bila key belum dikonfigurasi (tidak pernah menulis polos). Berkas yang gagal verifikasi (diubah, terpotong, tertukar) dijawab 500 oleh `/api/documents/[id]`, tidak pernah disajikan.
+- Berkas lama (tanpa header) tetap terbaca apa adanya. Untuk menyegelnya, **owner** menjalankan di host (setelah backup volume, `backup-dan-restore.md`): `npx tsx scripts/encrypt-existing-documents.ts`. **Jalankan saat mode pemeliharaan menyala** (`insiden.md`), supaya tidak ada unggahan yang berpapasan dengan rename. Berkas yang diubah kurang dari 60 detik lalu dilewati dan dicatat di log (jalankan ulang setelahnya). Idempoten, aman diulang; menulis file sementara (mode asli dipertahankan; pemilik asli hanya bisa dipertahankan bila skrip dijalankan sebagai root atau sebagai user aplikasi pemilik berkas, selain itu muncul peringatan EPERM dan pemilik perlu di-`chown` ulang), memverifikasinya dengan dekripsi, fsync, lalu rename dan fsync direktori.
+- Unggahan publik (`public/uploads`, sampul campaign) memang publik dan tidak disegel.

@@ -41,6 +41,7 @@ export function CampaignModerationActions({
   const [loading, setLoading] = useState<VerificationDecision | null>(null);
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const [reason, setReason] = useState("");
+  const [finalReject, setFinalReject] = useState(false);
   const [identityNote, setIdentityNote] = useState("");
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -81,7 +82,11 @@ export function CampaignModerationActions({
         .filter((entry) => ticked.has(entry.id) && !missingDocument(entry))
         .map((entry) => entry.id),
     };
-    if (decision === "reject") body.reason = reason;
+    if (decision === "reject") {
+      body.reason = reason;
+      // Closes the Campaign for good (PKS pasal 3.4); only ever with a rejection.
+      if (finalReject) body.final = true;
+    }
     if (decision === "approve" && !identityVerifiedAt && identityNote.trim() !== "") {
       body.identityNote = identityNote;
     }
@@ -235,6 +240,22 @@ export function CampaignModerationActions({
               disabled={loading !== null}
               className="w-full rounded-lg border border-border p-2 text-sm"
             />
+            <label className="mt-2 flex items-start gap-2 text-sm text-[#424242]">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={finalReject}
+                onChange={(event) => setFinalReject(event.target.checked)}
+                disabled={loading !== null}
+              />
+              <span>
+                Tolak final
+                <span className="block text-xs text-text-secondary">
+                  Campaign ini tidak dapat diajukan ulang oleh Fundraiser dan tampil sebagai &ldquo;Ditolak&rdquo;. Tanpa
+                  centang ini, Campaign tampil sebagai &ldquo;Perlu revisi&rdquo; dan boleh diperbaiki lalu diajukan lagi.
+                </span>
+              </span>
+            </label>
           </div>
 
           <p className="mb-4 text-sm text-[#424242]">

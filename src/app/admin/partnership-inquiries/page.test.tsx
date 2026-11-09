@@ -4,34 +4,47 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import AdminPartnershipInquiriesPage from './page';
 
 /**
- * The partnership team's Inquiry queue (ticket 06). The ADMIN gate is the admin
- * layout's (layout.test.tsx) and the movement rules are the API's; what this
- * file proves is that every Inquiry in the queue is shown with its Program,
- * company and status, and that the one action a row offers sends exactly the
- * status the API is asked for.
+ * The partnership team's CSR pipeline (tickets 06 and pks-pemenuhan/17). The
+ * ADMIN gate is the admin layout's (layout.test.tsx) and the rules on moving
+ * are the API's; what this file proves is that every Inquiry is shown in the
+ * column of its stage with its Program, company, budget and PIC, that its
+ * detail (contact, address, NPWP, proposal, history with notes) opens from the
+ * card, and that saving sends exactly the stage, PIC and note that changed.
  */
+const PROGRAM = (n: number, title: string, sector: string) => ({ id: `program-${n}`, slug: `p-${n}`, title, sector });
+
 const INQUIRIES = [
   {
     id: 'inquiry-1',
     companyName: 'PT Sinar Abadi',
     contactName: 'Rina Wijaya',
-    status: 'NOT_YET_FOLLOWED_UP',
+    status: 'NEW',
+    budgetRange: null,
+    periodStart: null,
+    periodEnd: null,
+    hasProposal: false,
+    pic: null,
     createdAt: '2026-09-20T00:00:00.000Z',
     updatedAt: '2026-09-20T00:00:00.000Z',
-    program: { id: 'program-1', slug: 'klinik-keliling-pesisir', title: 'Klinik Keliling Pesisir', sector: 'HEALTH' },
+    program: PROGRAM(1, 'Klinik Keliling Pesisir', 'HEALTH'),
     lastStatusChange: null,
   },
   {
     id: 'inquiry-2',
     companyName: 'PT Bumi Hijau',
     contactName: 'Dimas Prakoso',
-    status: 'IN_PROGRESS',
+    status: 'NEGOTIATION',
+    budgetRange: 'OVER_1B',
+    periodStart: '2027-01',
+    periodEnd: '2027-12',
+    hasProposal: true,
+    pic: { id: 'admin-2', name: 'Bagas Kemitraan' },
     createdAt: '2026-09-25T00:00:00.000Z',
     updatedAt: '2026-09-26T00:00:00.000Z',
-    program: { id: 'program-2', slug: 'hutan-kota', title: 'Hutan Kota Randhir', sector: 'ENVIRONMENT' },
+    program: PROGRAM(2, 'Hutan Kota Randhir', 'ENVIRONMENT'),
     lastStatusChange: {
-      fromStatus: 'NOT_YET_FOLLOWED_UP',
-      toStatus: 'IN_PROGRESS',
+      fromStatus: 'PROPOSAL',
+      toStatus: 'NEGOTIATION',
       actedById: 'admin-2',
       actedByName: 'Bagas Kemitraan',
       actedAt: '2026-09-26T00:00:00.000Z',
@@ -42,18 +55,55 @@ const INQUIRIES = [
     companyName: 'CV Cahaya Muda',
     contactName: 'Lina Kusuma',
     status: 'DONE',
+    budgetRange: 'UNDER_50M',
+    periodStart: null,
+    periodEnd: null,
+    hasProposal: false,
+    pic: null,
     createdAt: '2026-09-15T00:00:00.000Z',
     updatedAt: '2026-09-18T00:00:00.000Z',
-    program: { id: 'program-3', slug: 'sekolah-malam', title: 'Sekolah Malam Pesisir', sector: 'EDUCATION' },
-    lastStatusChange: {
-      fromStatus: 'IN_PROGRESS',
-      toStatus: 'DONE',
-      actedById: 'admin-3',
-      actedByName: 'Sari Kemitraan',
-      actedAt: '2026-09-18T00:00:00.000Z',
-    },
+    program: PROGRAM(3, 'Sekolah Malam Pesisir', 'EDUCATION'),
+    lastStatusChange: null,
   },
 ];
+
+const PICS = [
+  { id: 'admin-1', name: 'Dewi Partnership' },
+  { id: 'admin-2', name: 'Bagas Kemitraan' },
+];
+
+const DETAIL = {
+  id: 'inquiry-2',
+  companyName: 'PT Bumi Hijau',
+  contactName: 'Dimas Prakoso',
+  contactEmail: 'dimas@bumihijau.test',
+  contactPhone: '+62 811 0000 000',
+  companyAddress: 'Jl. Contoh Nomor 2, Kota Contoh',
+  companyNpwp: '0'.repeat(15),
+  needs: 'Kami ingin menanam 10.000 pohon.',
+  status: 'NEGOTIATION',
+  budgetRange: 'OVER_1B',
+  periodStart: '2027-01',
+  periodEnd: '2027-12',
+  createdAt: '2026-09-25T00:00:00.000Z',
+  program: PROGRAM(2, 'Hutan Kota Randhir', 'ENVIRONMENT'),
+  pic: { id: 'admin-2', name: 'Bagas Kemitraan' },
+  proposals: [{ id: 'doc-9', label: 'Proposal kolaborasi', contentType: 'application/pdf', sizeBytes: 1000, uploadedAt: '2026-09-25T00:00:00.000Z' }],
+  history: [
+    {
+      id: 'c1',
+      fromStatus: 'PROPOSAL',
+      toStatus: 'NEGOTIATION',
+      actedById: 'admin-2',
+      actedByName: 'Bagas Kemitraan',
+      actedAt: '2026-09-26T00:00:00.000Z',
+      note: 'Rapat pertama sudah dilakukan.',
+      picChanged: false,
+      picFromName: null,
+      picToName: null,
+    },
+  ],
+};
 
 const LIST = '/api/admin/partnership-inquiries';
 
@@ -62,13 +112,14 @@ function jsonResponse(body: unknown, ok = true) {
 }
 
 let fetchMock: Mock;
-let inquiries: unknown[];
+let detail: unknown;
 
 beforeEach(() => {
-  inquiries = INQUIRIES;
+  detail = DETAIL;
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === LIST && !init?.method) return jsonResponse({ inquiries });
-    return jsonResponse({ inquiry: { id: 'inquiry-1', status: 'IN_PROGRESS' } });
+    if (url === LIST && !init?.method) return jsonResponse({ inquiries: INQUIRIES, pics: PICS });
+    if (url === `${LIST}/inquiry-2` && !init?.method) return jsonResponse({ inquiry: detail });
+    return jsonResponse({ inquiry: { id: 'inquiry-2', status: 'APPROVED' } });
   });
   global.fetch = fetchMock as never;
 });
@@ -78,80 +129,155 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function callsTo(url: string) {
-  return fetchMock.mock.calls.filter(([u, init]) => u === url && init?.method);
+function patches() {
+  return fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
 }
 
-function loadsOfTheQueue() {
+function loadsOfTheList() {
   return fetchMock.mock.calls.filter(([u, init]) => u === LIST && !init?.method);
 }
 
-async function rowOf(company: string) {
+async function openDetailOfBumiHijau() {
   render(<AdminPartnershipInquiriesPage />);
-  return (await screen.findByText(company)).closest('tr') as HTMLElement;
+  fireEvent.click(await screen.findByRole('button', { name: 'Kelola PT Bumi Hijau' }));
+  return screen.findByRole('complementary', { name: 'Rincian Partnership Inquiry' });
 }
 
-describe('AdminPartnershipInquiriesPage', () => {
-  it('shows every Inquiry with its Program, company and status', async () => {
+describe('AdminPartnershipInquiriesPage pipeline', () => {
+  it('shows a column for each of the eight stages, in order, with the number of Inquiries in each', async () => {
     render(<AdminPartnershipInquiriesPage />);
 
-    const rows = await screen.findAllByRole('row');
-    // The header is the first row.
-    expect(rows).toHaveLength(INQUIRIES.length + 1);
+    const columns = await screen.findAllByRole('region', { name: /^Tahap / });
 
-    const followedUp = await rowOf('PT Bumi Hijau');
-    expect(followedUp.textContent).toContain('Hutan Kota Randhir');
-    expect(followedUp.textContent).toContain('Lingkungan');
-    expect(followedUp.textContent).toContain('Ditindaklanjuti');
-    expect(followedUp.textContent).toContain('Dimas Prakoso');
+    expect(columns.map((c) => c.getAttribute('aria-label'))).toEqual([
+      'Tahap Baru',
+      'Tahap Dihubungi',
+      'Tahap Proposal',
+      'Tahap Negosiasi',
+      'Tahap Disetujui',
+      'Tahap Berjalan',
+      'Tahap Selesai',
+      'Tahap Tidak dilanjutkan',
+    ]);
+    expect(within(columns[0]).getByText('1')).toBeTruthy();
+    expect(within(columns[1]).getByText('0')).toBeTruthy();
   });
 
-  it('shows who moved an Inquiry last, and says so plainly for one never moved', async () => {
-    const followedUp = await rowOf('PT Bumi Hijau');
-    expect(followedUp.textContent).toContain('Bagas Kemitraan');
-    expect((await rowOf('PT Sinar Abadi')).textContent).toContain('Belum ditindaklanjuti');
-  });
-
-  it('offers the one step forward, and sends exactly that status', async () => {
-    const row = await rowOf('PT Sinar Abadi');
-
-    fireEvent.click(within(row).getByRole('button', { name: 'Mulai Tindak Lanjut' }));
-
-    await waitFor(() => expect(callsTo(`${LIST}/inquiry-1`)).toHaveLength(1));
-    const [, init] = callsTo(`${LIST}/inquiry-1`)[0];
-    expect(init?.method).toBe('PATCH');
-    expect(JSON.parse(String(init?.body))).toEqual({ status: 'IN_PROGRESS' });
-    // The queue is reloaded, so what the team sees is what the database holds.
-    await waitFor(() => expect(loadsOfTheQueue().length).toBe(2));
-  });
-
-  it('offers to finish an Inquiry already being followed up, and no action on a finished one', async () => {
-    const inProgress = await rowOf('PT Bumi Hijau');
-    expect(within(inProgress).getByRole('button', { name: 'Tandai Selesai' })).toBeTruthy();
-
-    const done = (await screen.findByText('CV Cahaya Muda')).closest('tr') as HTMLElement;
-    expect(within(done).queryByRole('button')).toBeNull();
-  });
-
-  it('shows the refusal when the move is refused, and keeps the queue', async () => {
-    fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === LIST && !init?.method) return jsonResponse({ inquiries });
-      return jsonResponse({ error: 'Inquiry ini sudah ditindaklanjuti.' }, false);
-    });
-    global.fetch = fetchMock as never;
+  it('puts each Inquiry in the column of its stage, with Program, company, budget, period and PIC', async () => {
     render(<AdminPartnershipInquiriesPage />);
-    const row = (await screen.findByText('PT Sinar Abadi')).closest('tr') as HTMLElement;
 
-    fireEvent.click(within(row).getByRole('button', { name: 'Mulai Tindak Lanjut' }));
+    const negotiation = await screen.findByRole('region', { name: 'Tahap Negosiasi' });
+    expect(within(negotiation).getByText('PT Bumi Hijau')).toBeTruthy();
+    expect(negotiation.textContent).toContain('Hutan Kota Randhir');
+    expect(negotiation.textContent).toContain('Dimas Prakoso');
+    expect(negotiation.textContent).toContain('Di atas Rp1 miliar');
+    expect(negotiation.textContent).toContain('2027-01');
+    expect(negotiation.textContent).toContain('Bagas Kemitraan');
+    expect(negotiation.textContent).toContain('Proposal terlampir');
 
-    expect(await screen.findByText('Inquiry ini sudah ditindaklanjuti.')).toBeTruthy();
+    const fresh = await screen.findByRole('region', { name: 'Tahap Baru' });
+    expect(within(fresh).getByText('PT Sinar Abadi')).toBeTruthy();
+    expect(fresh.textContent).toContain('Belum ada PIC');
+    const done = await screen.findByRole('region', { name: 'Tahap Selesai' });
+    expect(within(done).getByText('CV Cahaya Muda')).toBeTruthy();
   });
 
-  it('says so when the queue cannot be loaded', async () => {
+  it('says so when the pipeline cannot be loaded', async () => {
     fetchMock = vi.fn(async () => jsonResponse({}, false));
     global.fetch = fetchMock as never;
     render(<AdminPartnershipInquiriesPage />);
 
     expect(await screen.findByText(/Gagal memuat/)).toBeTruthy();
+  });
+});
+
+describe('AdminPartnershipInquiriesPage detail', () => {
+  it('opens the Inquiry in full: contact, address, NPWP, needs, proposal link and the history with its notes', async () => {
+    const panel = await openDetailOfBumiHijau();
+
+    expect(panel.textContent).toContain('dimas@bumihijau.test');
+    expect(panel.textContent).toContain('Jl. Contoh Nomor 2, Kota Contoh');
+    expect(panel.textContent).toContain('0'.repeat(15));
+    expect(panel.textContent).toContain('Kami ingin menanam 10.000 pohon.');
+    expect(panel.textContent).toContain('Rapat pertama sudah dilakukan.');
+    const link = within(panel).getByRole('link', { name: /Proposal kolaborasi/ });
+    expect(link.getAttribute('href')).toBe('/api/documents/doc-9');
+  });
+
+  it('saves the stage, PIC and note that changed, and reloads both the pipeline and the detail', async () => {
+    const panel = await openDetailOfBumiHijau();
+
+    fireEvent.change(within(panel).getByLabelText('Tahap'), { target: { value: 'APPROVED' } });
+    fireEvent.change(within(panel).getByLabelText('PIC'), { target: { value: 'admin-1' } });
+    fireEvent.change(within(panel).getByLabelText('Catatan tindak lanjut'), { target: { value: 'Anggaran disetujui.' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Simpan perubahan' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    const [url, init] = patches()[0];
+    expect(url).toBe(`${LIST}/inquiry-2`);
+    expect(JSON.parse(String(init?.body))).toEqual({ status: 'APPROVED', picId: 'admin-1', note: 'Anggaran disetujui.' });
+    await waitFor(() => expect(loadsOfTheList().length).toBe(2));
+  });
+
+  it('sends only what changed: a PIC change alone does not resend the stage', async () => {
+    const panel = await openDetailOfBumiHijau();
+
+    fireEvent.change(within(panel).getByLabelText('PIC'), { target: { value: 'admin-1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Simpan perubahan' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(JSON.parse(String(patches()[0][1]?.body))).toEqual({ picId: 'admin-1' });
+  });
+
+  it('clears the PIC by sending null', async () => {
+    const panel = await openDetailOfBumiHijau();
+
+    fireEvent.change(within(panel).getByLabelText('PIC'), { target: { value: '' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Simpan perubahan' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(JSON.parse(String(patches()[0][1]?.body))).toEqual({ picId: null });
+  });
+
+  it('offers nothing to save until something changes', async () => {
+    const panel = await openDetailOfBumiHijau();
+
+    expect(within(panel).getByRole('button', { name: 'Simpan perubahan' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('asks for a reason before an Inquiry leaves Selesai, and will not save without one', async () => {
+    detail = { ...DETAIL, id: 'inquiry-2', status: 'DONE' };
+    const panel = await openDetailOfBumiHijau();
+
+    fireEvent.change(within(panel).getByLabelText('Tahap'), { target: { value: 'ONGOING' } });
+
+    expect(within(panel).getByText(/Alasan wajib diisi/)).toBeTruthy();
+    expect(within(panel).getByRole('button', { name: 'Simpan perubahan' }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(within(panel).getByLabelText('Catatan tindak lanjut'), { target: { value: 'Kontrak diperpanjang.' } });
+    expect(within(panel).getByRole('button', { name: 'Simpan perubahan' }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('offers only Admin users as PIC', async () => {
+    const panel = await openDetailOfBumiHijau();
+
+    const options = within(within(panel).getByLabelText('PIC')).getAllByRole('option').map((o) => o.textContent);
+
+    expect(options).toEqual(['Belum ada PIC', 'Dewi Partnership', 'Bagas Kemitraan']);
+  });
+
+  it('shows the refusal when the change is refused', async () => {
+    fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === LIST && !init?.method) return jsonResponse({ inquiries: INQUIRIES, pics: PICS });
+      if (!init?.method) return jsonResponse({ inquiry: DETAIL });
+      return jsonResponse({ error: 'PIC harus berupa pengguna Admin.' }, false);
+    });
+    global.fetch = fetchMock as never;
+    const panel = await openDetailOfBumiHijau();
+
+    fireEvent.change(within(panel).getByLabelText('PIC'), { target: { value: 'admin-1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Simpan perubahan' }));
+
+    expect(await screen.findByText('PIC harus berupa pengguna Admin.')).toBeTruthy();
   });
 });

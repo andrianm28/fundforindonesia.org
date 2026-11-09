@@ -6,9 +6,17 @@ import { Footer } from '@/components/layout/Footer';
 
 const HIDE_FOOTER_PATTERNS = ['/login', '/register', '/admin', '/moderasi'];
 
-export function ConditionalFooter({ footer, social }: { footer: SiteSettings['footer']; social: SiteSettings['social'] }) {
+export function ConditionalFooter({
+  footer,
+  social,
+  zakatOpen = false,
+}: {
+  footer: SiteSettings['footer'];
+  social: SiteSettings['social'];
+  zakatOpen?: boolean;
+}) {
   const pathname = usePathname();
   const shouldHide = HIDE_FOOTER_PATTERNS.some(p => pathname.startsWith(p));
   if (shouldHide) return null;
-  return <Footer footer={footer} social={social} />;
+  return <Footer footer={footer} social={social} zakatOpen={zakatOpen} />;
 }

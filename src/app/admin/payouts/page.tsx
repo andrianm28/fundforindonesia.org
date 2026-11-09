@@ -32,7 +32,7 @@ import type { Payout, PayoutStatus } from '@/generated/prisma/client';
  * plain existence check against `balanceChecks`, never a column of its own.
  */
 
-const QUEUE_STATUSES: PayoutStatus[] = ['DRAFT', 'APPROVED'];
+const QUEUE_STATUSES: PayoutStatus[] = ['DRAFT', 'REVISION_REQUESTED', 'APPROVED'];
 
 type QueueRow = Pick<
   Payout,
@@ -154,6 +154,7 @@ export default async function AdminPayoutsPage() {
 
   const subjects = await loadPayoutSubjects(prisma, payouts);
   const awaitingApproval = payouts.filter((p) => p.status === 'DRAFT');
+  const awaitingRevision = payouts.filter((p) => p.status === 'REVISION_REQUESTED');
   const awaitingCompletion = payouts.filter((p) => p.status === 'APPROVED');
 
   return (
@@ -167,6 +168,7 @@ export default async function AdminPayoutsPage() {
       </div>
 
       <QueueTable title="Menunggu persetujuan" payouts={awaitingApproval} subjects={subjects} />
+      <QueueTable title="Menunggu revisi Fundraiser" payouts={awaitingRevision} subjects={subjects} />
       <QueueTable title="Menunggu penyelesaian dengan bukti" payouts={awaitingCompletion} subjects={subjects} />
     </div>
   );

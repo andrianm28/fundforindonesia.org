@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useCallback } from 'react';
 import useSWR from 'swr';
 import { getRelativeTimestamp } from '@/lib/utils/date';
+import { notificationTypeMeta, type NotificationTone } from '@/lib/notification-types';
 
 interface NotificationItem {
   id: string;
-  type: 'donation_confirmed' | 'campaign_update' | 'disbursement';
+  type: string;
   title: string;
   message: string;
   isRead: boolean;
@@ -166,6 +167,9 @@ function NotificationCard({
               <span className="shrink-0 w-2 h-2 rounded-full bg-[#0073E6] mt-1.5" />
             )}
           </div>
+          <p className="text-[#9E9E9E] text-[10px] uppercase tracking-wide mt-0.5">
+            {notificationTypeMeta(notification.type).label}
+          </p>
           <p className="text-text-secondary text-xs mt-1 line-clamp-2">
             {notification.message}
           </p>
@@ -178,47 +182,26 @@ function NotificationCard({
   );
 }
 
-function NotificationIcon({ type }: { type: NotificationItem['type'] }) {
-  const iconConfig = {
-    donation_confirmed: {
-      bg: 'bg-[#E8F5E9]',
-      color: 'text-[#2E7D32]',
-      path: (
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M5 13l4 4L19 7"
-        />
-      ),
-    },
-    campaign_update: {
-      bg: 'bg-[#E3F2FD]',
-      color: 'text-[#0073E6]',
-      path: (
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      ),
-    },
-    disbursement: {
-      bg: 'bg-[#FFF8E1]',
-      color: 'text-[#F57F17]',
-      path: (
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      ),
-    },
-  };
+const ICON_PATHS = {
+  check: 'M5 13l4 4L19 7',
+  info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  money:
+    'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  warning:
+    'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
+  error: 'M6 18L18 6M6 6l12 12',
+} as const;
 
-  const config = iconConfig[type] || iconConfig.campaign_update;
+const TONE_STYLE: Record<NotificationTone, { bg: string; color: string; path: string }> = {
+  success: { bg: 'bg-[#E8F5E9]', color: 'text-[#2E7D32]', path: ICON_PATHS.check },
+  info: { bg: 'bg-[#E3F2FD]', color: 'text-[#0073E6]', path: ICON_PATHS.info },
+  money: { bg: 'bg-[#FFF8E1]', color: 'text-[#F57F17]', path: ICON_PATHS.money },
+  warning: { bg: 'bg-[#FFF3E0]', color: 'text-[#E65100]', path: ICON_PATHS.warning },
+  error: { bg: 'bg-[#FFEBEE]', color: 'text-[#C62828]', path: ICON_PATHS.error },
+};
+
+function NotificationIcon({ type }: { type: NotificationItem['type'] }) {
+  const config = TONE_STYLE[notificationTypeMeta(type).tone];
 
   return (
     <div
@@ -230,7 +213,7 @@ function NotificationIcon({ type }: { type: NotificationItem['type'] }) {
         stroke="currentColor"
         viewBox="0 0 24 24"
       >
-        {config.path}
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={config.path} />
       </svg>
     </div>
   );

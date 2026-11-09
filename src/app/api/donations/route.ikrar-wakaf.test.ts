@@ -32,6 +32,8 @@ vi.mock('@/lib/prisma', () => ({
     {},
     {
       get(_target, key: string) {
+        // Setelan operasional (src/lib/operations.ts): no row, so donations are open.
+        if (key === 'siteSetting') return { findUnique: async () => null };
         if (key === 'donation') return holder.donation;
         if (key === 'payment') return holder.payment;
         if (key === 'prayer') return holder.prayer;

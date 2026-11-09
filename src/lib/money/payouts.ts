@@ -1,4 +1,5 @@
-import type { Payout, PayoutBalanceCheck, Prisma, PrismaClient } from '@/generated/prisma/client';
+import type { Payout, PayoutBalanceCheck, PayoutStatus, Prisma, PrismaClient } from '@/generated/prisma/client';
+import { merchantEntityForPurpose } from '@/lib/payments/merchant';
 import { campaignBalance, tripBalance, MAX_RUPIAH_AMOUNT, payoutInstructedLegs, payoutCompletedLegs, postTransaction, reverseEntriesLegs, type LedgerSubject } from './ledger';
 import { currentSandboxStamp, requireNotSandboxInLiveMode, sandboxModeOf } from './sandbox-mode';
 import { requireTripFundsFromCompletedBatches } from './trip-payout-funds';
@@ -13,6 +14,8 @@ import { validateProofReference, validateProofNote, buildProofImage } from '@/li
 import { campaignBlockingUsageReport } from '@/lib/usage-reports';
 import { UsageReportRequiredError } from '@/lib/usage-report-errors';
 import { emailPayoutStatus } from '@/lib/status-emails';
+import { MAX_PAYOUT_DESCRIPTION_LENGTH, MAX_PAYOUT_NOTE_LENGTH } from '@/lib/payout-limits';
+import { notifyPayoutRevision } from '@/lib/notifications';
 import type { Mailer } from '@/lib/mail';
 import {
   DemoCampaignError,
@@ -31,6 +34,15 @@ import {
   SandboxRowInLiveModeError,
   PayoutReasonInvalidError,
 } from './errors';
+
+/**
+ * The merchant a Payout's ledger movements belong to (ADR 0027). A Payout moves
+ * a Fundraiser's donated money out of the yayasan's Provider Balance, so it is
+ * YAYASAN. A Trip Fee marked commercial would be BADAN_USAHA money and is not
+ * paid out through this module; until that flag exists there is nothing to
+ * derive it from, and the routing function says YAYASAN for a payout.
+ */
+const PAYOUT_MERCHANT = merchantEntityForPurpose({ kind: 'payout' });
 
 /**
  * Payout: request, approve, release.
@@ -142,6 +154,23 @@ function payoutSubjectFk(subject: LedgerSubject): { campaignId: string | null; v
   }
 }
 
+const MAX_SUPPORTING_NOTE_LENGTH = MAX_PAYOUT_NOTE_LENGTH;
+
+/**
+ * The additional note on a Payout request (PKS Pasal 4.5): trimmed, null when
+ * blank or absent, refused past the column's length. Free text for the Admin
+ * to read; nothing else in the money layer looks at it.
+ */
+function cleanSupportingNote(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') return null;
+  if (text.length > MAX_SUPPORTING_NOTE_LENGTH) {
+    throw new PayoutReasonInvalidError(`Catatan maksimal ${MAX_SUPPORTING_NOTE_LENGTH} karakter.`);
+  }
+  return text;
+}
+
 /**
  * The owning Fundraiser or Campaign creator requests a payout. Creates a
  * DRAFT and posts nothing to the ledger -- a request is not yet a movement
@@ -177,9 +206,12 @@ export async function requestPayout(
     bankAccountId: string;
     amount: number;
     description: string;
+    /** An additional note for the Admin reading the request (PKS Pasal 4.5). */
+    note?: string | null;
   },
 ): Promise<Payout> {
   const { subject, requestedById, bankAccountId, amount, description } = params;
+  const supportingNote = cleanSupportingNote(params.note);
 
   // A Payout is for a Campaign or a Volunteer Trip and nothing else. The type
   // says so already; this is the same refusal at runtime, before any lock or
@@ -279,6 +311,7 @@ export async function requestPayout(
       bankAccountId,
       amount,
       description,
+      supportingNote,
       requestedById,
       status: 'DRAFT',
       sandbox,
@@ -575,7 +608,7 @@ export async function approvePayout(
     await postTransaction(
       tx,
       payoutInstructedLegs({ subject, amount: payout.amount }),
-      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}`, provider },
+      { payoutId: payout.id, sandbox: sandboxModeOf(payout), transactionId: `payout-instructed-${payout.id}`, provider, merchantEntity: PAYOUT_MERCHANT, actorId: approvedById },
     );
   });
 
@@ -908,6 +941,8 @@ export async function completePayout(
         sandbox: sandboxModeOf(payout),
         transactionId: `payout-completed-${payout.id}`,
         provider: payout.approvedProvider ?? undefined,
+        merchantEntity: PAYOUT_MERCHANT,
+        actorId: completedById,
       },
     );
   });
@@ -962,7 +997,9 @@ async function resolvePayout(
 ): Promise<Payout> {
   const { payoutId, actorId, action } = params;
   const reason = cleanResolutionReason(params.reason);
-  const from = action === 'reject' ? 'DRAFT' : 'APPROVED';
+  // A Payout sent back for revision may still be rejected: the Fundraiser may
+  // never answer, and the request needs a way out (pks-pemenuhan/12).
+  const allowedFrom: PayoutStatus[] = action === 'reject' ? ['DRAFT', 'REVISION_REQUESTED'] : ['APPROVED'];
 
   await prisma.$transaction(async (tx) => {
     const payout = await tx.payout.findUnique({ where: { id: payoutId } });
@@ -973,7 +1010,7 @@ async function resolvePayout(
     const { state: subjectState } = await lockPayoutSubject(tx, payout);
     if (subjectState) requireNotOwnerAsAdmin(subjectState, actorId);
 
-    if (payout.status !== from) {
+    if (!allowedFrom.includes(payout.status)) {
       throw new InvalidPayoutStatusError(payout.status);
     }
 
@@ -1001,7 +1038,7 @@ async function resolvePayout(
     }
 
     const claimed = await tx.payout.updateMany({
-      where: { id: payoutId, status: from },
+      where: { id: payoutId, status: payout.status },
       data: { status: action === 'reject' ? 'REJECTED' : 'FAILED', rejectionReason: reason },
     });
     if (claimed.count === 0) {
@@ -1014,6 +1051,8 @@ async function resolvePayout(
         sandbox: sandboxModeOf(payout),
         transactionId: `payout-failed-${payoutId}`,
         provider: payout.approvedProvider ?? undefined,
+        merchantEntity: PAYOUT_MERCHANT,
+        actorId,
       });
     }
   });
@@ -1038,4 +1077,133 @@ export function failPayout(
   params: { payoutId: string; failedById: string; reason: string },
 ): Promise<Payout> {
   return resolvePayout(prisma, { payoutId: params.payoutId, actorId: params.failedById, reason: params.reason, action: 'fail' });
+}
+
+/**
+ * An Admin sends a DRAFT Payout back to its Fundraiser with a reason (PKS
+ * Pasal 4.5): DRAFT -> REVISION_REQUESTED. Money does not move: no ledger row
+ * is posted here, and approvePayout accepts DRAFT only, so a Payout in
+ * revision cannot be approved until the Fundraiser resubmits it.
+ *
+ * Same door as reject: the subject is locked and read, the Fundraiser of that
+ * subject is refused as Admin, and the claim is conditional on the status it
+ * read, so a Payout approved a moment ago is not dragged back. The in-app
+ * notification and the email go after commit and cannot undo it; a failed
+ * email lands in the failed-notification queue like the other transactional
+ * mails (sendReportingFailure).
+ */
+export async function requestPayoutRevision(
+  prisma: PrismaClient,
+  params: { payoutId: string; requestedById: string; reason: string; mailer?: Mailer },
+): Promise<Payout> {
+  const { payoutId, requestedById } = params;
+  const reason = cleanResolutionReason(params.reason);
+
+  const notice = await prisma.$transaction(async (tx) => {
+    const payout = await tx.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    const { state: subjectState } = await lockPayoutSubject(tx, payout);
+    if (subjectState) requireNotOwnerAsAdmin(subjectState, requestedById);
+
+    if (payout.status !== 'DRAFT') {
+      throw new InvalidPayoutStatusError(payout.status);
+    }
+
+    const claimed = await tx.payout.updateMany({
+      where: { id: payoutId, status: 'DRAFT' },
+      data: {
+        status: 'REVISION_REQUESTED',
+        revisionReason: reason,
+        revisionRequestedById: requestedById,
+        revisionRequestedAt: new Date(),
+      },
+    });
+    if (claimed.count === 0) {
+      throw new InvalidPayoutStatusError('unknown (changed concurrently)', 'lost the revision race');
+    }
+
+    return { fundraiserId: payout.requestedById };
+  });
+
+  // After commit, never inside it: the Payout is in revision whether or not
+  // the Fundraiser's inbox or email is reached, and nothing below throws.
+  try {
+    await notifyPayoutRevision(prisma, { payoutId, userId: notice.fundraiserId, reason });
+  } catch (err) {
+    console.error(
+      JSON.stringify({ event: 'notification_failed', notification: 'payout_revision', payoutId, error: err instanceof Error ? err.name : 'unknown error' }),
+    );
+  }
+  await emailPayoutStatus(prisma, { payoutId, event: 'revision_requested', reason }, params.mailer);
+
+  return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+}
+
+/**
+ * The Fundraiser answers a revision request (PKS Pasal 4.5):
+ * REVISION_REQUESTED -> DRAFT, back in the Admin's queue. They may replace the
+ * note and the description (supporting papers are uploaded as Documents
+ * meanwhile); the amount and the destination account are not editable here,
+ * because changing them changes what the balance check and the bank check
+ * already judged -- that is a new request, after the old one is rejected.
+ *
+ * Only the subject's own Fundraiser, judged on the state read under the lock
+ * like requestPayout; and the subject must still be able to pay out (a
+ * Campaign Suspended in the meantime cannot put a Payout back in the queue).
+ * Posts nothing.
+ */
+export async function resubmitPayout(
+  prisma: PrismaClient,
+  params: { payoutId: string; requestedById: string; note?: string | null; description?: string | null },
+): Promise<Payout> {
+  const { payoutId, requestedById } = params;
+  const note = params.note === undefined || params.note === null ? undefined : cleanSupportingNote(params.note);
+  const description = typeof params.description === 'string' ? params.description.trim() : '';
+  if (description.length > MAX_PAYOUT_DESCRIPTION_LENGTH) {
+    throw new PayoutReasonInvalidError(`Keterangan maksimal ${MAX_PAYOUT_DESCRIPTION_LENGTH} karakter.`);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const payout = await tx.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    // Not the requester: the same answer as a Payout that is not there, so a
+    // stranger cannot tell which ids exist. requestedById never changes, so it
+    // needs no lock to be judged.
+    if (payout.requestedById !== requestedById) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+
+    const { state: subjectState } = await lockPayoutSubject(tx, payout);
+    // The requester, but no longer the subject's Fundraiser (judged on the
+    // owner read under the lock): the same "missing" answer.
+    if (subjectState && subjectState.ownerId !== requestedById) {
+      throw new PayoutNotFoundError(payoutId);
+    }
+    await requireNotTeamMemberLocked(tx, requestedById);
+    if (subjectState) requirePayoutAllowed(subjectState);
+
+    if (payout.status !== 'REVISION_REQUESTED') {
+      throw new InvalidPayoutStatusError(payout.status);
+    }
+
+    const claimed = await tx.payout.updateMany({
+      where: { id: payoutId, status: 'REVISION_REQUESTED' },
+      data: {
+        status: 'DRAFT',
+        ...(note !== undefined ? { supportingNote: note } : {}),
+        ...(description !== '' ? { description } : {}),
+      },
+    });
+    if (claimed.count === 0) {
+      throw new InvalidPayoutStatusError('unknown (changed concurrently)', 'lost the resubmission race');
+    }
+  });
+
+  return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
 }

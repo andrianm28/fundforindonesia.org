@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clientAddress } from "@/lib/client-ip";
+import { readInquiryRequestBody } from "@/lib/inquiry-request";
 import { consumeRateLimit, type RateLimitInput, type RateLimitResult } from "@/lib/rate-limit";
 import {
   createPartnershipInquiry,
@@ -15,6 +17,10 @@ import {
  * no account, and requiring one would only keep the CSR team out of the form.
  * The follow-up status is never read from the body: a company cannot mark its
  * own Inquiry as followed up, and the module fixes the first value.
+ *
+ * The body is JSON, or multipart/form-data when the company attaches a proposal
+ * PDF (pks-pemenuhan/17; a private Document, never public). The rate limits
+ * below count the same either way, and run before the body is read.
  *
  * The module checks every field itself and refuses with 400, or with 404 for a
  * Program that does not exist. A notification that could not be sent does not
@@ -81,18 +87,21 @@ export async function POST(req: NextRequest) {
   });
   if (perClient && !perClient.allowed) return tooManyRequests(perClient.retryAfterSeconds);
 
-  const parsed = await req.json().catch(() => undefined);
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return NextResponse.json({ error: "Body permintaan harus berupa objek JSON." }, { status: 400 });
-  }
+  const read = await readInquiryRequestBody(req);
+  if ("error" in read) return NextResponse.json({ error: read.error }, { status: read.status });
+  const { fields: parsed, proposal } = read;
 
   // A filled honeypot is answered as a success -- same status, nothing that
   // says why -- and nothing is written or mailed, so a bot learns nothing.
   // Any non-string value counts as filled; a string counts once trimmed.
-  const trap = (parsed as Record<string, unknown>)[HONEYPOT_FIELD];
+  const trap = parsed[HONEYPOT_FIELD];
   if (trap !== undefined && trap !== null && (typeof trap !== "string" || trap.trim() !== "")) {
     console.warn(JSON.stringify({ event: "honeypot_triggered", route: "partnership-inquiries" }));
-    return NextResponse.json({ received: true }, { status: 201 });
+    // Same shape as a real answer, with an id that names nothing.
+    return NextResponse.json(
+      { inquiry: { id: `c${randomBytes(12).toString("hex")}`, status: "NEW", proposalStored: false } },
+      { status: 201 },
+    );
   }
 
   try {
@@ -112,8 +121,13 @@ export async function POST(req: NextRequest) {
         }
         throw new GlobalLimitReachedError(overall.retryAfterSeconds);
       }
-    });
-    return NextResponse.json({ inquiry }, { status: 201 });
+    }, { proposal: proposal ?? undefined });
+    // The caller has no account and is not authenticated: answer what the form
+    // needs and nothing of the stored row (no ciphertext, HMAC or key ids).
+    return NextResponse.json(
+      { inquiry: { id: inquiry.id, status: inquiry.status, proposalStored: inquiry.proposalStored } },
+      { status: 201 },
+    );
   } catch (error) {
     if (error instanceof GlobalLimitReachedError) return tooManyRequests(error.retryAfterSeconds);
     const refusal = partnershipInquiryErrorToHttp(error);

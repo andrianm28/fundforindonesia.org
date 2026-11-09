@@ -9,6 +9,8 @@ import { isProvinceCode, provinceName } from '@/lib/indonesia-provinces';
  */
 export const REGENCY_MAX = 100;
 export const BENEFICIARY_DESCRIPTION_MAX = 200;
+/** How the Fundraiser relates to the beneficiary (PKS pasal 3.2). */
+export const BENEFICIARY_RELATIONSHIP_MAX = 200;
 /** The largest value a Postgres INTEGER holds. */
 export const BENEFICIARY_COUNT_MAX = 2_147_483_647;
 
@@ -28,6 +30,10 @@ export const campaignLocationSchema = z.object({
   beneficiaryDescription: z.preprocess(
     blankToNull,
     z.string().trim().max(BENEFICIARY_DESCRIPTION_MAX, `Penerima manfaat maksimal ${BENEFICIARY_DESCRIPTION_MAX} karakter`).nullable().optional(),
+  ),
+  beneficiaryRelationship: z.preprocess(
+    blankToNull,
+    z.string().trim().max(BENEFICIARY_RELATIONSHIP_MAX, `Hubungan dengan penerima manfaat maksimal ${BENEFICIARY_RELATIONSHIP_MAX} karakter`).nullable().optional(),
   ),
   beneficiaryCount: z
     .number()

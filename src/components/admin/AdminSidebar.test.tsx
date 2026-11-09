@@ -16,10 +16,19 @@ describe("AdminSidebar", () => {
       "/admin/manual-contributions", "/admin/abuse-thresholds", "/admin/campaigns/lifecycle",
       "/admin/volunteer-trips", "/admin/dormant-balances", "/admin/finance", "/admin/verification-checklist",
       "/admin/collecting-entities", "/admin/partnership-inquiries", "/admin/payment-providers", "/admin/platform-fee", "/admin/escrow-hold",
-      "/admin/reconciliation", "/admin/programs", "/admin/scrutiny", "/admin/campaign-transfers",
+      "/admin/reconciliation", "/admin/notifikasi-gagal", "/admin/doa", "/admin/kurasi", "/admin/programs", "/admin/scrutiny", "/admin/campaign-transfers",
     ]) {
       expect(container.querySelectorAll(`nav a[href="${href}"]`)).toHaveLength(1);
     }
+  });
+
+  it("links the zakat page only while the zakat module is on (ADR 0028)", () => {
+    const off = render(<AdminSidebar />);
+    expect(off.container.querySelectorAll('nav a[href="/admin/zakat"]')).toHaveLength(0);
+    off.unmount();
+
+    const on = render(<AdminSidebar zakatOpen />);
+    expect(on.container.querySelectorAll('nav a[href="/admin/zakat"]')).toHaveLength(1);
   });
 
   it("uses brand tokens on links and never the ledger gold", () => {

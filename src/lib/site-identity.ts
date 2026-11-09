@@ -18,5 +18,25 @@ export const SITE_IDENTITY = {
   privacyEmail: 'privasi@fundforindonesia.org',
 } as const;
 
-/** Tanggal revisi Syarat & Ketentuan dan Kebijakan Privasi. */
-export const LEGAL_DOCS_UPDATED = '2 November 2026';
+/**
+ * Versi yang dicatat pada persetujuan pengguna (UserConsent.version), berbentuk
+ * YYYY-MM-DD. Satu-satunya sumber: LEGAL_DOCS_UPDATED diturunkan darinya.
+ * Mengubah teks Syarat atau Privasi berarti menaikkan konstanta ini; semua
+ * pengguna lalu diminta menyetujui ulang, dan persetujuan lama tetap tercatat
+ * dengan versinya.
+ */
+export const LEGAL_DOCS_VERSION = '2026-11-02';
+
+const BULAN = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+/** "2026-10-16" -> "16 Oktober 2026". */
+export function formatLegalDocsDate(version: string): string {
+  const [y, m, d] = version.split('-').map(Number);
+  return `${d} ${BULAN[m - 1]} ${y}`;
+}
+
+/** Tanggal revisi Syarat & Ketentuan dan Kebijakan Privasi, diturunkan dari LEGAL_DOCS_VERSION. */
+export const LEGAL_DOCS_UPDATED = formatLegalDocsDate(LEGAL_DOCS_VERSION);

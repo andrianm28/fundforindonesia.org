@@ -24,7 +24,13 @@ vi.mock('@/lib/guest-donation-claim', () => ({
   claimGuestDonations: vi.fn().mockResolvedValue({ verified: true, claimed: 0 }),
 }));
 
+// PKS 3.8: the aggregation has its own tests in src/lib/donation-summaries.test.ts.
+vi.mock('@/lib/donation-summaries', () => ({
+  supportedCampaignsForDonor: vi.fn().mockResolvedValue([]),
+}));
+
 import { prisma } from '@/lib/prisma';
+import { supportedCampaignsForDonor } from '@/lib/donation-summaries';
 import { getServerSession } from '@/lib/auth';
 import { claimGuestDonations } from '@/lib/guest-donation-claim';
 import { GET } from './route';
@@ -62,6 +68,19 @@ describe('GET /api/donations/mine', () => {
     const response = await GET(mineRequest());
 
     expect(response.status).toBe(401);
+  });
+
+  it("sends the Donor's supported Campaigns, asked for this Donor only (PKS 3.8)", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: 'donor-1' } });
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+    const supported = [{ slug: 's', title: 'S', coverImage: '', totalAmount: 5, donationCount: 1 }];
+    (supportedCampaignsForDonor as unknown as Mock).mockResolvedValueOnce(supported);
+
+    const data = await (await GET(mineRequest())).json();
+
+    expect(data.supportedCampaigns).toEqual(supported);
+    expect((supportedCampaignsForDonor as unknown as Mock).mock.calls.at(-1)?.[1]).toBe('donor-1');
   });
 
   it("carries the Receipt's token for a settled Donation", async () => {

@@ -56,6 +56,84 @@ describe('Donasi Saya', () => {
     expect(link.getAttribute('href')).toBe('/receipt/tok-1');
   });
 
+  it('offers the Receipt as a PDF download beside the print link (PKS 3.8)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ donations: [donation()], total: 1, page: 1, limit: 10, totalPages: 1 }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    const link = await screen.findByRole('link', { name: 'Unduh bukti (PDF)' });
+    expect(link.getAttribute('href')).toBe('/api/receipts/tok-1/pdf');
+  });
+
+  it('offers no PDF for a Donation still pending', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          donations: [donation({ paymentStatus: 'pending', receiptToken: null })],
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+        }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    await screen.findByText('Test Campaign');
+    expect(screen.queryByRole('link', { name: 'Unduh bukti (PDF)' })).toBeNull();
+  });
+
+  it('lists the Campaigns the Donor supports with the settled total (PKS 3.8)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          donations: [donation()],
+          supportedCampaigns: [
+            { slug: 'sekolah', title: 'Sekolah Yatim', coverImage: '', totalAmount: 150_000, donationCount: 2 },
+          ],
+          total: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+        }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    expect(await screen.findByText('Kampanye yang Anda dukung')).toBeTruthy();
+    const link = screen.getByRole('link', { name: /Sekolah Yatim/ });
+    expect(link.getAttribute('href')).toBe('/campaign/sekolah');
+    expect(link.textContent).toMatch(/150\.000/);
+    expect(link.textContent).toMatch(/2 donasi/);
+  });
+
+  it('shows no support section when there is nothing settled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ donations: [donation()], supportedCampaigns: [], total: 1, page: 1, limit: 10, totalPages: 1 }),
+      }),
+    );
+
+    render(<DonasiSayaPage />);
+
+    await screen.findByText('Test Campaign');
+    expect(screen.queryByText('Kampanye yang Anda dukung')).toBeNull();
+  });
+
   it('shows no Receipt link for a Donation still pending', async () => {
     vi.stubGlobal(
       'fetch',

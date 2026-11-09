@@ -133,9 +133,9 @@ describe.skipIf(!DATABASE_URL)('Payout and Refund legs carry the provider -- aga
       await ledger.postTransaction(
         tx,
         ledger.paymentSettledLegs({ subject, grossAmount: GROSS, providerFee: PROVIDER_FEE, platformFee: PLATFORM_FEE }),
-        { paymentId: payment.id, provider },
+        { merchantEntity: 'YAYASAN', paymentId: payment.id, provider },
       );
-      await ledger.postTransaction(tx, ledger.escrowReleaseLegs({ subject, amount: NET }));
+      await ledger.postTransaction(tx, ledger.escrowReleaseLegs({ subject, amount: NET }), { merchantEntity: 'YAYASAN' });
     });
     return payment;
   }
@@ -346,7 +346,7 @@ describe.skipIf(!DATABASE_URL)('Payout and Refund legs carry the provider -- aga
     // Approved before approvedProvider existed: no reading on the row.
     await prisma.payout.update({ where: { id: draft.id }, data: { status: 'APPROVED', approvedById: await makeUser(), approvedAt: new Date() } });
     await prisma.$transaction((tx) =>
-      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId: campaign.id }, amount: NET }), {
+      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId: campaign.id }, amount: NET }), { merchantEntity: 'YAYASAN',
         payoutId: draft.id,
         transactionId: `payout-instructed-${draft.id}`,
       }),

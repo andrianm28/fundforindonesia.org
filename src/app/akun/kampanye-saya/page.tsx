@@ -9,7 +9,8 @@ import useSWR from 'swr';
 import { formatRupiah } from '@/lib/utils/currency';
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import type { CampaignLifecycleStatus } from '@/types/campaign';
-import { SUBMITTABLE_STATUSES, submitToVerifier, withdrawFromVerifier } from '@/lib/verification-submission';
+import { SUBMITTABLE_STATUSES, submitToVerifier, TRUTH_STATEMENT_REQUIRED, withdrawFromVerifier } from '@/lib/verification-submission';
+import { TruthStatementField } from '@/components/campaign/TruthStatementField';
 import { PAYOUT_REQUESTABLE_STATUSES } from '@/lib/payout-requestable-statuses';
 import { DOCUMENT_UPLOADABLE_STATUSES } from '@/lib/document-uploadable-statuses';
 
@@ -22,13 +23,22 @@ interface Campaign {
   targetAmount: number;
   /** Effective: an Active Campaign past its deadline arrives as EXPIRED. */
   lifecycleStatus: CampaignLifecycleStatus;
+  /** The Verifier rejected it for good: it reads "Ditolak" and cannot be edited or submitted again (PKS pasal 3.4). */
+  rejectionFinal?: boolean;
   /** The Verification Request a Submitted Campaign waits on, which its Fundraiser may withdraw. */
   pendingVerificationRequestId: string | null;
   createdAt: string;
 }
 
+interface IncomeSummary {
+  total: number;
+  perCampaign: Array<{ campaignId: string; slug: string; title: string; totalAmount: number; donationCount: number }>;
+}
+
 interface CampaignsResponse {
   campaigns: Campaign[];
+  /** Settled Donations only, over all of the Fundraiser's Campaigns (PKS 3.9). */
+  income?: IncomeSummary;
   total: number;
   page: number;
   totalPages: number;
@@ -126,6 +136,8 @@ export default function MyCampaignsPage() {
         </div>
       </div>
 
+      {data?.income && <IncomeSummaryCard income={data.income} />}
+
       {/* Campaign List */}
       <div className="px-4 mt-4 space-y-3">
         {campaigns.map((campaign) => {
@@ -168,7 +180,7 @@ export default function MyCampaignsPage() {
                         <h3 className="text-text text-sm font-medium line-clamp-2 flex-1">
                           {campaign.title}
                         </h3>
-                        <CampaignStatusBadge status={campaign.lifecycleStatus} />
+                        <CampaignStatusBadge status={campaign.lifecycleStatus} rejectionFinal={campaign.rejectionFinal} />
                       </div>
                     </div>
 
@@ -220,7 +232,7 @@ export default function MyCampaignsPage() {
                 or Rejected Campaign, or asking for a new target or deadline on
                 an Active one (change, complete, cancel). Other statuses have nothing to change there.
               */}
-              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
+              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && !campaign.rejectionFinal && (
                 <Link
                   href={`/akun/kampanye-saya/${campaign.slug}`}
                   className="border-t border-border px-3 py-2 text-xs font-medium text-[#0073E6] hover:bg-bg-secondary transition-colors"
@@ -254,11 +266,12 @@ export default function MyCampaignsPage() {
                   Dokumen
                 </Link>
               )}
-              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && (
+              {SUBMITTABLE_STATUSES.includes(campaign.lifecycleStatus) && !campaign.rejectionFinal && (
                 <VerificationAction
                   label="Ajukan ke Verifier"
                   variant="primary"
-                  run={() => submitToVerifier(campaign.slug)}
+                  needsTruthStatement
+                  run={(truthStatement) => submitToVerifier(campaign.slug, truthStatement)}
                   onDone={() => mutate()}
                 />
               )}
@@ -353,6 +366,28 @@ export default function MyCampaignsPage() {
   );
 }
 
+/** Money in, per Campaign and in all, from settled Donations only (PKS 3.9). */
+function IncomeSummaryCard({ income }: { income: IncomeSummary }) {
+  return (
+    <div data-testid="income-summary" className="mx-4 mt-4 bg-white rounded-xl shadow-xs p-4">
+      <p className="text-text-secondary text-xs">Total donasi masuk</p>
+      <p data-testid="income-total" className="text-[#0073E6] text-lg font-bold">
+        {formatRupiah(income.total)}
+      </p>
+      <ul className="mt-3 space-y-1.5 border-t border-border pt-3">
+        {income.perCampaign.map((c) => (
+          <li key={c.campaignId} data-testid={`income-${c.slug}`} className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-text line-clamp-1 min-w-0">{c.title}</span>
+            <span className="shrink-0 text-text font-medium">
+              {formatRupiah(c.totalAmount)} <span className="text-text-secondary font-normal">({c.donationCount} donasi)</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * One Verification Request action on a Campaign card: submitting a Draft or
  * Rejected Campaign to a Verifier, or withdrawing the request it waits on.
@@ -364,19 +399,27 @@ function VerificationAction({
   run,
   onDone,
   variant,
+  needsTruthStatement = false,
 }: {
   label: string;
-  run: () => Promise<string | null>;
+  run: (truthStatement: boolean) => Promise<string | null>;
   onDone: () => void;
   variant: 'primary' | 'secondary';
+  /** Shows the "pernyataan kebenaran data" checkbox, which must be ticked to act (PKS pasal 3.3). */
+  needsTruthStatement?: boolean;
 }) {
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState('');
+  const [truthStatement, setTruthStatement] = useState(false);
 
   async function act() {
+    if (needsTruthStatement && !truthStatement) {
+      setRefusal(TRUTH_STATEMENT_REQUIRED);
+      return;
+    }
     setPending(true);
     setRefusal('');
-    const refused = await run();
+    const refused = await run(truthStatement);
     setPending(false);
     if (refused) setRefusal(refused);
     else onDone();
@@ -389,7 +432,21 @@ function VerificationAction({
 
   return (
     <div className="border-t border-border px-3 py-2 flex items-center justify-between gap-2">
-      <p className="text-xs text-danger">{refusal}</p>
+      {needsTruthStatement ? (
+        <div className="min-w-0 flex-1 text-xs">
+          <TruthStatementField
+            checked={truthStatement}
+            onChange={(checked) => {
+              setTruthStatement(checked);
+              if (checked) setRefusal('');
+            }}
+            disabled={pending}
+          />
+          <p className="text-danger mt-1">{refusal}</p>
+        </div>
+      ) : (
+        <p className="text-xs text-danger">{refusal}</p>
+      )}
       <button
         type="button"
         onClick={act}

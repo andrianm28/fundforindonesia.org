@@ -18,6 +18,8 @@ import {
   rejectPayout,
   failPayout,
   PayoutReasonInvalidError,
+  requestPayoutRevision,
+  resubmitPayout,
 } from './payouts';
 import { InvalidPayoutSubjectError } from './payout-subject';
 import { PayoutNotAllowedForStatusError } from '@/lib/subject-guard';
@@ -2129,5 +2131,368 @@ describe('Payout two-person rule and segregation of duties are unchanged by orga
         providerBalance: 2_000_000,
       }),
     ).rejects.toThrow(OwnSubjectConflictError);
+  });
+});
+
+describe('Payout revision (PKS Pasal 4.5, pks-pemenuhan/12)', () => {
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    id: 'payout-1',
+    campaignId: 'campaign-1',
+    volunteerTripId: null,
+    amount: 500_000,
+    description: 'Tahap 1',
+    status: 'DRAFT',
+    requestedById: 'requester-1',
+    approvedById: null,
+    rejectionReason: null,
+    supportingNote: null,
+    revisionReason: null,
+    bankAccount: verifiedBankAccount(),
+    ...overrides,
+  });
+
+  const emailRow = {
+    amount: 500_000,
+    requestedById: 'requester-1',
+    volunteerTripId: null,
+    requestedBy: { name: 'Requester One', ...sealUserEmail('requester@example.test') },
+    bankAccount: { bankCode: 'BCA' },
+    campaign: { title: 'Sumur Desa', slug: 'sumur-desa' },
+  };
+
+  /** makeTx plus the things the revision path reads or writes outside the transaction. */
+  function setup(payoutRow: Record<string, unknown>, options: Parameters<typeof makeTx>[0] = {}) {
+    const made = makeTx({ payoutRow, ...options });
+    const base = makePrisma(made.tx, payoutRow);
+    const notificationCreate = vi.fn().mockResolvedValue({});
+    const prisma = {
+      ...base,
+      payout: { ...base.payout, findUnique: vi.fn().mockResolvedValue(emailRow) },
+      notification: { create: notificationCreate },
+    };
+    return { ...made, prisma, notificationCreate };
+  }
+
+  describe('requestPayoutRevision', () => {
+    it('moves a DRAFT Payout to REVISION_REQUESTED with the reason, who and when, and posts nothing to the ledger', async () => {
+      const { prisma, payoutState, rows, tx } = setup(row());
+
+      await requestPayoutRevision(prisma as never, {
+        payoutId: 'payout-1',
+        requestedById: 'admin-1',
+        reason: '  Lampirkan RAB yang terbaru  ',
+        mailer: new MockMailer(),
+      });
+
+      expect(payoutState).toMatchObject({
+        status: 'REVISION_REQUESTED',
+        revisionReason: 'Lampirkan RAB yang terbaru',
+        revisionRequestedById: 'admin-1',
+      });
+      expect(payoutState!.revisionRequestedAt).toBeInstanceOf(Date);
+      expect(rows).toEqual([]);
+      expect(tx.ledgerEntry.createMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses the Fundraiser of that subject acting as Admin', async () => {
+      const { prisma, payoutState } = setup(row());
+
+      await expect(
+        requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', reason: 'x', mailer: new MockMailer() }),
+      ).rejects.toThrow(OwnSubjectConflictError);
+      expect(payoutState).toMatchObject({ status: 'DRAFT' });
+    });
+
+    it('refuses a blank reason and one over 500 characters, leaving the Payout DRAFT', async () => {
+      for (const reason of ['   ', 'x'.repeat(501)]) {
+        const { prisma, payoutState } = setup(row());
+        await expect(
+          requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'admin-1', reason, mailer: new MockMailer() }),
+        ).rejects.toThrow(PayoutReasonInvalidError);
+        expect(payoutState).toMatchObject({ status: 'DRAFT' });
+      }
+    });
+
+    it.each(['APPROVED', 'COMPLETED', 'REJECTED', 'FAILED', 'REVISION_REQUESTED'])(
+      'refuses a Payout that is %s, changing nothing',
+      async (status) => {
+        const { prisma, payoutState, rows, notificationCreate } = setup(row({ status }));
+
+        await expect(
+          requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'admin-1', reason: 'x', mailer: new MockMailer() }),
+        ).rejects.toThrow(InvalidPayoutStatusError);
+        expect(payoutState).toMatchObject({ status });
+        expect(rows).toEqual([]);
+        expect(notificationCreate).not.toHaveBeenCalled();
+      },
+    );
+
+    it('throws PayoutNotFoundError for a Payout that does not exist', async () => {
+      const made = makeTx({ payoutRow: null });
+      const prisma = { ...makePrisma(made.tx, {}), notification: { create: vi.fn() } };
+      await expect(
+        requestPayoutRevision(prisma as never, { payoutId: 'nope', requestedById: 'admin-1', reason: 'x', mailer: new MockMailer() }),
+      ).rejects.toThrow(PayoutNotFoundError);
+    });
+
+    it('tells the Fundraiser in the inbox and by email, after the change committed', async () => {
+      const { prisma, notificationCreate } = setup(row());
+      const mailer = new MockMailer();
+
+      await requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'admin-1', reason: 'Lampirkan RAB', mailer });
+
+      expect(notificationCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ type: 'payout_revision', userId: 'requester-1', link: '/akun/kampanye-saya/sumur-desa/pencairan' }),
+      });
+      expect(notificationCreate.mock.calls[0][0].data.message).toContain('Lampirkan RAB');
+      expect(mailer.sent).toHaveLength(1);
+      expect(mailer.sent[0]).toMatchObject({ to: 'requester@example.test' });
+      expect(mailer.sent[0].subject).toContain('revisi');
+      expect(mailer.sent[0].text).toContain('Lampirkan RAB');
+    });
+
+    it('keeps the revision when the inbox write fails or the email cannot be sent (the failed-notification queue owns the retry)', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { prisma, payoutState, notificationCreate } = setup(row());
+      notificationCreate.mockRejectedValueOnce(new Error('db blip'));
+      const failing: Mailer = {
+        name: 'failing',
+        send: async () => {
+          throw new Error('relay down');
+        },
+      };
+
+      await expect(
+        requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'admin-1', reason: 'x', mailer: failing }),
+      ).resolves.toBeDefined();
+
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"mail_send_failed"'));
+      errors.mockRestore();
+    });
+  });
+
+  describe('a Payout in revision cannot move money', () => {
+    it('is refused by approvePayout and posts nothing, even with ample balance and a good provider reading', async () => {
+      const payoutRow = row({ status: 'REVISION_REQUESTED' });
+      const made = makeTx({
+        bankAccount: verifiedBankAccount(),
+        ledgerRows: [
+          { transactionId: 't1', direction: 'CREDIT', amount: 5_000_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+        ],
+        payoutRow,
+      });
+      const before = made.rows.length;
+      const prisma = makePrisma(made.tx, payoutRow);
+
+      await expect(
+        approvePayout(prisma as never, {
+          payoutId: 'payout-1',
+          approvedById: 'admin-1',
+          provider: 'sumopod',
+          providerBalance: 9_000_000,
+          mailer: new MockMailer(),
+        }),
+      ).rejects.toBeInstanceOf(InvalidPayoutStatusError);
+
+      expect(made.payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+      expect(made.rows).toHaveLength(before);
+    });
+
+    it('is refused by completePayout and failPayout, which need APPROVED', async () => {
+      const payoutRow = row({ status: 'REVISION_REQUESTED' });
+      const made = makeTx({ payoutRow });
+      const prisma = makePrisma(made.tx, payoutRow);
+
+      await expect(
+        completePayout(prisma as never, { payoutId: 'payout-1', completedById: 'admin-2', proofReference: 'TRX-1', proofNote: 'ok', mailer: new MockMailer() }),
+      ).rejects.toBeInstanceOf(InvalidPayoutStatusError);
+      await expect(failPayout(prisma as never, { payoutId: 'payout-1', failedById: 'admin-2', reason: 'x' })).rejects.toBeInstanceOf(
+        InvalidPayoutStatusError,
+      );
+      expect(made.rows).toEqual([]);
+    });
+
+    it('can still be rejected by an Admin: a revision nobody answers has a way out', async () => {
+      const payoutRow = row({ status: 'REVISION_REQUESTED' });
+      const { tx, payoutState, rows } = makeTx({ payoutRow });
+      const prisma = makePrisma(tx, { ...payoutRow, status: 'REJECTED' });
+
+      await rejectPayout(prisma as never, { payoutId: 'payout-1', rejectedById: 'admin-1', reason: 'Tidak dilengkapi' });
+
+      expect(payoutState).toMatchObject({ status: 'REJECTED', rejectionReason: 'Tidak dilengkapi' });
+      expect(rows).toEqual([]);
+    });
+  });
+
+  describe('resubmitPayout', () => {
+    it('puts a REVISION_REQUESTED Payout back to DRAFT for the Admin queue, with the new note and description, posting nothing', async () => {
+      const { prisma, payoutState, rows } = setup(row({ status: 'REVISION_REQUESTED', revisionReason: 'Lampirkan RAB' }));
+
+      await resubmitPayout(prisma as never, {
+        payoutId: 'payout-1',
+        requestedById: 'requester-1',
+        note: '  RAB terbaru terlampir  ',
+        description: '  Tahap 1 (revisi)  ',
+      });
+
+      expect(payoutState).toMatchObject({
+        status: 'DRAFT',
+        supportingNote: 'RAB terbaru terlampir',
+        description: 'Tahap 1 (revisi)',
+        revisionReason: 'Lampirkan RAB',
+      });
+      expect(rows).toEqual([]);
+    });
+
+    it('leaves note and description alone when none is given', async () => {
+      const { prisma, payoutState } = setup(row({ status: 'REVISION_REQUESTED', supportingNote: 'lama' }));
+
+      await resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' });
+
+      expect(payoutState).toMatchObject({ status: 'DRAFT', supportingNote: 'lama', description: 'Tahap 1' });
+    });
+
+    it('answers anyone but the Fundraiser of the subject as a missing Payout, changing nothing', async () => {
+      const { prisma, payoutState } = setup(row({ status: 'REVISION_REQUESTED' }));
+
+      await expect(resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'someone-else' })).rejects.toThrow(
+        PayoutNotFoundError,
+      );
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+
+    it.each(['DRAFT', 'APPROVED', 'REJECTED'])('refuses a Payout that is %s', async (status) => {
+      const { prisma, payoutState } = setup(row({ status }));
+
+      await expect(resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' })).rejects.toThrow(
+        InvalidPayoutStatusError,
+      );
+      expect(payoutState).toMatchObject({ status });
+    });
+
+    it('refuses once the Campaign is Suspended: the same gate a new request meets', async () => {
+      const { prisma, payoutState } = setup(row({ status: 'REVISION_REQUESTED' }), { lifecycleStatus: 'SUSPENDED' });
+
+      await expect(resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' })).rejects.toThrow(
+        PayoutNotAllowedForStatusError,
+      );
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+
+    it('refuses a note over 1000 characters', async () => {
+      const { prisma, payoutState } = setup(row({ status: 'REVISION_REQUESTED' }));
+
+      await expect(
+        resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', note: 'x'.repeat(1001) }),
+      ).rejects.toThrow(PayoutReasonInvalidError);
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+  });
+
+  describe('a Volunteer Trip Payout', () => {
+    const tripRow = (overrides: Record<string, unknown> = {}) =>
+      row({ campaignId: null, volunteerTripId: 'trip-1', ...overrides });
+
+    function setupTrip(payoutRow: Record<string, unknown>, options: Parameters<typeof makeTx>[0] = {}) {
+      const made = setup(payoutRow, options);
+      const prisma = {
+        ...made.prisma,
+        volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ slug: 'trip-a' }) },
+        payout: {
+          ...made.prisma.payout,
+          findUnique: vi.fn().mockResolvedValue({
+            ...emailRow,
+            volunteerTripId: 'trip-1',
+            campaign: null,
+          }),
+        },
+      };
+      return { ...made, prisma };
+    }
+
+    it('requestPayoutRevision locks the Trip row, refuses the Trip Fundraiser acting as Admin, and links the notice to the Trip page', async () => {
+      const own = setupTrip(tripRow());
+      await expect(
+        requestPayoutRevision(own.prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', reason: 'x', mailer: new MockMailer() }),
+      ).rejects.toThrow(OwnSubjectConflictError);
+      expect(own.payoutState).toMatchObject({ status: 'DRAFT' });
+
+      const { prisma, payoutState, rows, tx, queryRawCalls, notificationCreate } = setupTrip(tripRow());
+      await requestPayoutRevision(prisma as never, { payoutId: 'payout-1', requestedById: 'admin-1', reason: 'Lampirkan RAB', mailer: new MockMailer() });
+
+      expect(tx.volunteerTrip.findUnique).toHaveBeenCalled();
+      expect(tx.campaign.findUnique).not.toHaveBeenCalled();
+      expect(queryRawCalls.some((q) => q.includes('VolunteerTrip') && q.includes('FOR UPDATE'))).toBe(true);
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED', revisionRequestedById: 'admin-1' });
+      expect(rows).toEqual([]);
+      expect(notificationCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ type: 'payout_revision', link: '/akun/volunteer-trip/trip-a' }),
+      });
+    });
+
+    it('resubmitPayout locks the Trip row and puts the Payout back to DRAFT for its own Trip Fundraiser, posting nothing', async () => {
+      const { prisma, payoutState, rows, tx, queryRawCalls } = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }));
+
+      await resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1', note: 'RAB terbaru' });
+
+      expect(tx.volunteerTrip.findUnique).toHaveBeenCalled();
+      expect(queryRawCalls.some((q) => q.includes('VolunteerTrip') && q.includes('FOR UPDATE'))).toBe(true);
+      expect(payoutState).toMatchObject({ status: 'DRAFT', supportingNote: 'RAB terbaru' });
+      expect(rows).toEqual([]);
+    });
+
+    it('resubmitPayout answers a user who is not the Trip Fundraiser as a missing Payout, whether they requested the row or not', async () => {
+      const stranger = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }));
+      await expect(resubmitPayout(stranger.prisma as never, { payoutId: 'payout-1', requestedById: 'someone-else' })).rejects.toThrow(
+        PayoutNotFoundError,
+      );
+      expect(stranger.payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+
+      // The row says requester-1 but the Trip's Fundraiser is someone else now.
+      const moved = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }), { ownerId: 'new-owner' });
+      await expect(resubmitPayout(moved.prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' })).rejects.toThrow(
+        PayoutNotFoundError,
+      );
+      expect(moved.payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+
+    it('resubmitPayout is refused while the Trip is Suspended', async () => {
+      const { prisma, payoutState } = setupTrip(tripRow({ status: 'REVISION_REQUESTED' }), { tripStatus: 'SUSPENDED' });
+
+      await expect(resubmitPayout(prisma as never, { payoutId: 'payout-1', requestedById: 'requester-1' })).rejects.toThrow(
+        PayoutNotAllowedForStatusError,
+      );
+      expect(payoutState).toMatchObject({ status: 'REVISION_REQUESTED' });
+    });
+  });
+
+  describe('requestPayout with a supporting note', () => {
+    const ledgerRows: LedgerRow[] = [
+      { transactionId: 't1', direction: 'CREDIT', amount: 1_000_000, account: 'CAMPAIGN_BALANCE', campaignId: 'campaign-1', volunteerTripId: null },
+    ];
+    const base = {
+      subject: { type: 'campaign' as const, campaignId: 'campaign-1' },
+      requestedById: 'requester-1',
+      bankAccountId: 'bank-1',
+      amount: 100_000,
+      description: 'Tahap 1',
+    };
+
+    it('stores the trimmed note on the DRAFT, and null when none is given', async () => {
+      const withNote = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows });
+      await requestPayout(withNote.tx as never, { ...base, note: '  Terlampir RAB  ' });
+      expect(withNote.payoutCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ supportingNote: 'Terlampir RAB', status: 'DRAFT' }) });
+
+      const without = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows });
+      await requestPayout(without.tx as never, base);
+      expect(without.payoutCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ supportingNote: null }) });
+    });
+
+    it('refuses a note over 1000 characters before creating anything', async () => {
+      const { tx, payoutCreate } = makeTx({ bankAccount: verifiedBankAccount(), ledgerRows });
+      await expect(requestPayout(tx as never, { ...base, note: 'x'.repeat(1001) })).rejects.toThrow(PayoutReasonInvalidError);
+      expect(payoutCreate).not.toHaveBeenCalled();
+    });
   });
 });

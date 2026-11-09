@@ -177,7 +177,7 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
         ledger.postTransaction(
           tx,
           ledger.paymentSettledLegs({ subject: { type: 'campaign', campaignId }, grossAmount: gross, ...fees }),
-          { paymentId: payment.id, sandbox: o.sandbox ?? false, provider: 'sumopod' },
+          { merchantEntity: 'YAYASAN', paymentId: payment.id, sandbox: o.sandbox ?? false, provider: 'sumopod' },
         ),
       );
     }
@@ -215,7 +215,7 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       await prisma.$transaction((tx) =>
         ledger.postTransaction(
           tx,
-          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }),
+          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }), { merchantEntity: 'YAYASAN' },
         ),
       );
 
@@ -334,7 +334,7 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       await prisma.$transaction((tx) =>
         ledger.postTransaction(
           tx,
-          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }),
+          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }), { merchantEntity: 'YAYASAN' },
         ),
       );
       await prisma.campaign.update({ where: { id: campaignId }, data: { lifecycleStatus: 'SUSPENDED' } });
@@ -368,7 +368,7 @@ describe.skipIf(!DATABASE_URL)('Closed-Campaign Refund proposals -- against real
       await prisma.$transaction((tx) =>
         ledger.postTransaction(
           tx,
-          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }),
+          ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: netOf(200_000) }), { merchantEntity: 'YAYASAN' },
         ),
       );
       await prisma.campaign.update({ where: { id: campaignId }, data: { lifecycleStatus: 'SUSPENDED' } });

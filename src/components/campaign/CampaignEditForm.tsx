@@ -10,6 +10,8 @@ import { CoverImageField } from '@/components/campaign/CoverImageField';
 import { CampaignStoryField } from '@/components/campaign/CampaignStoryField';
 import { CollectingEntityField, type SponsorOptions } from '@/components/campaign/CollectingEntityField';
 import { CampaignLocationFields } from '@/components/campaign/CampaignLocationFields';
+import { GalleryImagesField, useGalleryDraft } from '@/components/campaign/GalleryImagesField';
+import { TruthStatementField } from '@/components/campaign/TruthStatementField';
 import type { CampaignKind } from '@/lib/campaign-kind';
 import {
   contentPayload,
@@ -24,7 +26,7 @@ import {
   type LocationFormValues,
 } from '@/lib/campaign-form';
 import { saveCampaignEdit } from '@/lib/fundraiser-requests';
-import { submitToVerifier } from '@/lib/verification-submission';
+import { submitToVerifier, TRUTH_STATEMENT_REQUIRED } from '@/lib/verification-submission';
 import { formatRupiah } from '@/lib/utils/currency';
 
 export interface CampaignEditInitial extends LocationFormValues {
@@ -34,6 +36,8 @@ export interface CampaignEditInitial extends LocationFormValues {
   /** The WIB calendar date `YYYY-MM-DD`, or '' when there is no deadline. */
   deadline: string;
   coverImage: string;
+  /** The gallery already stored (PKS pasal 3.3), up to six. */
+  galleryImages?: readonly string[];
   collectingEntityId: string;
 }
 
@@ -44,6 +48,7 @@ interface Errors extends LocationFormErrors {
   coverImage?: string;
   story?: string;
   collectingEntityId?: string;
+  truthStatement?: string;
 }
 
 /**
@@ -72,6 +77,8 @@ export function CampaignEditForm({
   const [sponsorOptions, setSponsorOptions] = useState<SponsorOptions | null>(null);
   const [pending, setPending] = useState<'save' | 'submit' | null>(null);
   const [message, setMessage] = useState('');
+  const gallery = useGalleryDraft(initial.galleryImages);
+  const [truthStatement, setTruthStatement] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,16 +119,23 @@ export function CampaignEditForm({
   async function save(andSubmit: boolean) {
     setMessage('');
     if (!validate()) return;
+    // The server refuses a submission without the statement; ask before saving anything.
+    if (andSubmit && !truthStatement) {
+      setErrors((prev) => ({ ...prev, truthStatement: TRUTH_STATEMENT_REQUIRED }));
+      return;
+    }
     setPending(andSubmit ? 'submit' : 'save');
     let saved = false;
     try {
       const coverImage = newCover ? await uploadCoverImage(newCover.file) : initial.coverImage;
+      const galleryImages = await gallery.resolve();
       const content = contentPayload(form);
       const refused = await saveCampaignEdit(slug, {
         ...content,
         // null, not undefined: an emptied deadline must clear it (wakaf only).
         deadline: content.deadline ?? null,
         coverImage,
+        galleryImages,
         kind: form.kind,
         ...locationPayload(form),
         // An organisation's own account gets its organisation on the server.
@@ -130,7 +144,7 @@ export function CampaignEditForm({
       if (refused) throw new Error(refused);
       saved = true;
       if (andSubmit) {
-        const notSubmitted = await submitToVerifier(slug);
+        const notSubmitted = await submitToVerifier(slug, truthStatement);
         if (notSubmitted) throw new Error(notSubmitted);
       }
       router.push('/akun/kampanye-saya');
@@ -202,6 +216,7 @@ export function CampaignEditForm({
           regency: form.regency,
           beneficiaryDescription: form.beneficiaryDescription,
           beneficiaryCount: form.beneficiaryCount,
+          beneficiaryRelationship: form.beneficiaryRelationship,
         }}
         errors={errors}
         onChange={(location) => setForm((prev) => ({ ...prev, ...location }))}
@@ -221,10 +236,22 @@ export function CampaignEditForm({
         }}
       />
 
+      <GalleryImagesField draft={gallery} />
+
       <CampaignStoryField
         value={form.story}
         error={errors.story}
         onChange={(story) => setForm((prev) => ({ ...prev, story }))}
+      />
+
+      <TruthStatementField
+        checked={truthStatement}
+        onChange={(checked) => {
+          setTruthStatement(checked);
+          if (checked) setErrors((prev) => ({ ...prev, truthStatement: undefined }));
+        }}
+        disabled={pending !== null}
+        error={errors.truthStatement}
       />
 
       <div className="flex gap-3 pt-4">

@@ -178,7 +178,7 @@ describe.skipIf(!DATABASE_URL)('A Refund reads its fee shares off its freeze -- 
           providerFee: PROVIDER_FEE,
           platformFee: PLATFORM_FEE,
         }),
-        { paymentId: payment.id },
+        { merchantEntity: 'YAYASAN', paymentId: payment.id },
       ),
     );
     return payment;
@@ -236,7 +236,7 @@ describe.skipIf(!DATABASE_URL)('A Refund reads its fee shares off its freeze -- 
     const released = await escrow.releaseMaturedEscrow({ type: 'campaign', id: campaignId });
     expect(released.releasedCount).toBe(1);
     await prisma.$transaction((tx) =>
-      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: NET })),
+      ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: NET }), { merchantEntity: 'YAYASAN' }),
     );
     return payment;
   }
@@ -361,7 +361,7 @@ describe.skipIf(!DATABASE_URL)('A Refund reads its fee shares off its freeze -- 
       ledger.postTransaction(
         tx,
         ledger.paymentSettledLegs({ subject: { type: 'trip', tripId }, grossAmount: GROSS, providerFee: PROVIDER_FEE }),
-        { paymentId: payment.id },
+        { merchantEntity: 'YAYASAN', paymentId: payment.id },
       ),
     );
     return payment;

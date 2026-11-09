@@ -15,6 +15,10 @@ export type FieldKeys = {
   emailLookups(email: string): EmailLookup[];
   encrypt(field: string, plaintext: string): SealedField;
   decrypt(field: string, sealed: SealedField): string;
+  /** Binary form for file contents (ticket 14): iv | ciphertext | tag, sealed under the current key with `aad` bound in. */
+  encryptBytes(aad: string, plaintext: Buffer): { sealed: Buffer; keyId: string };
+  /** Opens `encryptBytes` output with the key named by `keyId`, current or retired. Throws on any tampering or an unknown id. */
+  decryptBytes(aad: string, sealed: Buffer, keyId: string): Buffer;
 };
 
 const IV_BYTES = 12;
@@ -112,6 +116,26 @@ export function loadFieldKeys(env: Record<string, string | undefined>): FieldKey
     },
     emailLookups(email) {
       return hmacKeys.map((entry) => lookupWith(entry, email));
+    },
+    encryptBytes(aad, plaintext) {
+      const iv = randomBytes(IV_BYTES);
+      const cipher = createCipheriv('aes-256-gcm', encKey, iv);
+      cipher.setAAD(Buffer.from(aad, 'utf8'));
+      const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+      return { sealed: Buffer.concat([iv, body, cipher.getAuthTag()]), keyId: encKeyId };
+    },
+    decryptBytes(aad, sealed, keyId) {
+      const entry = encKeys.find((k) => k.id === keyId);
+      if (!entry) {
+        throw new Error(`No field encryption key with id "${keyId}" is configured`);
+      }
+      if (sealed.length < IV_BYTES + TAG_BYTES) {
+        throw new Error('Sealed bytes are too short to be sealed data');
+      }
+      const decipher = createDecipheriv('aes-256-gcm', entry.key, sealed.subarray(0, IV_BYTES));
+      decipher.setAAD(Buffer.from(aad, 'utf8'));
+      decipher.setAuthTag(sealed.subarray(sealed.length - TAG_BYTES));
+      return Buffer.concat([decipher.update(sealed.subarray(IV_BYTES, sealed.length - TAG_BYTES)), decipher.final()]);
     },
     encrypt(field, plaintext) {
       const iv = randomBytes(IV_BYTES);

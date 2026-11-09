@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { betaSandboxEnvRefusals, paymentProviderProductionRefusal } from './production-readiness';
 import { PAYMENT_PROVIDER_NAMES } from './provider-names';
 
@@ -17,7 +17,13 @@ import { PAYMENT_PROVIDER_NAMES } from './provider-names';
  * says "refuse" is worth having; a provider nobody thought about is not.
  */
 
-const KEYS = ['PAYMENT_PROVIDER', 'SUMOPOD_BASE_URL', 'BETA_SANDBOX'] as const;
+const KEYS = [
+  'PAYMENT_PROVIDER',
+  'SUMOPOD_BASE_URL',
+  'SUMOPOD_YAYASAN_BASE_URL',
+  'SUMOPOD_BADAN_USAHA_BASE_URL',
+  'BETA_SANDBOX',
+] as const;
 
 let saved: Record<string, string | undefined>;
 
@@ -168,5 +174,41 @@ describe('betaSandboxEnvRefusals (ticket rilis-1-benda/94)', () => {
     const refusals = betaSandboxEnvRefusals();
     expect(new Set(refusals).size).toBe(refusals.length);
     expect(refusals.join(' ')).not.toContain('api-pay.sumopod.com');
+  });
+});
+
+describe('per merchant (pks-pemenuhan/04, ADR 0027)', () => {
+  it('judges each merchant by its own base url, and names that variable', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    process.env.SUMOPOD_BADAN_USAHA_BASE_URL = 'https://api-pay-sandbox.sumopod.com/api/v1';
+
+    expect(paymentProviderProductionRefusal('sumopod', 'YAYASAN')).toBeNull();
+    expect(paymentProviderProductionRefusal('sumopod', 'BADAN_USAHA')).toMatch(/SUMOPOD_BADAN_USAHA_BASE_URL.*sandbox/);
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses BADAN_USAHA with no base url, never reading the yayasan one', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    expect(paymentProviderProductionRefusal('sumopod', 'BADAN_USAHA')).toMatch(/SUMOPOD_BADAN_USAHA_BASE_URL is not set/);
+    vi.unstubAllEnvs();
+  });
+
+  it('prefers SUMOPOD_YAYASAN_BASE_URL over the legacy name for the yayasan', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    process.env.SUMOPOD_YAYASAN_BASE_URL = 'https://api-pay-sandbox.sumopod.com/api/v1';
+    expect(paymentProviderProductionRefusal('sumopod')).toMatch(/SUMOPOD_YAYASAN_BASE_URL/);
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses the beta when ANY merchant carries a live url, not only the yayasan', () => {
+    vi.stubEnv('BETA_SANDBOX', 'true');
+    process.env.BETA_SANDBOX = 'true';
+    process.env.SUMOPOD_BASE_URL = 'https://api-pay-sandbox.sumopod.com/api/v1';
+    process.env.SUMOPOD_BADAN_USAHA_BASE_URL = 'https://api-pay.sumopod.com/api/v1';
+    expect(betaSandboxEnvRefusals().join('\n')).toMatch(/SUMOPOD_BADAN_USAHA_BASE_URL is not the Sumopod sandbox/);
+    vi.unstubAllEnvs();
   });
 });

@@ -1,0 +1,22 @@
+# 09: Kampanye: galeri, pernyataan kebenaran data, label status, riwayat status
+
+**Blocked by:** 08 (slot skema)
+
+**Status:** done
+
+**What to build:** Pasal 3.3–3.4. (a) Galeri terbatas: maksimal 6 gambar per Campaign, pakai validasi unggahan yang ada. (b) Centang wajib 'pernyataan kebenaran data' saat mengajukan, disimpan dengan waktu. (c) Label status sesuai kontrak: SUSPENDED tampil 'Ditangguhkan'; REJECTED yang masih bisa diajukan ulang tampil 'Perlu revisi', ditolak final tampil 'Ditolak' (tambah penanda final pada aksi tolak); tampilkan 'Disetujui' di riwayat saat Verifier menyetujui. (d) Layar riwayat status (CampaignStatusChange) di halaman moderasi dan admin Campaign.
+
+- [x] Test label untuk setiap status
+- [x] Test galeri batas 6
+- [x] Test pengajuan tanpa pernyataan ditolak
+
+## Comments
+
+- Migrasi `20261111090000_kampanye_galeri_pernyataan_penolakan_final`: hanya menambah kolom. `Campaign.galleryImages TEXT[]` (default kosong) dengan CHECK `cardinality <= 6` di database selain batas aplikasi (`galleryImagesSchema`), `Campaign.rejectionFinal` dan `CampaignStatusChange.final` (boolean, default false), `VerificationRequest.truthStatementAcceptedAt` (nullable; pengajuan lama tidak punya). Diterapkan ke Postgres kosong baru: `migrate diff` kosong. (Postgres bersama `ffi` sudah menyimpang dari skema karena migrasi tiket 04 versi lama; dipakai DB sendiri `ffi_t09`.)
+- Galeri memakai `/api/upload` yang sama dengan sampul (sniffing byte di `src/lib/uploads.ts`, bukan tipe klien) dan `coverImageSchema` per elemen, tanpa duplikat. Diunggah saat form disimpan (`useGalleryDraft`), bukan saat dipilih. Halaman publik menyaring lagi dengan `isValidCoverImage` saat render. GET publik `/api/campaigns/[slug]` hanya menambah `galleryImages`; daftar publik `/api/campaigns` sekarang `omit` `beneficiaryRelationship` dan `rejectionFinal` (celah tiket 08 ikut tertutup).
+- Pernyataan kebenaran data disimpan per Verification Request (bukan per Campaign), jadi tiap pengajuan ulang punya waktu centang sendiri. `submitCampaign` menolak (400 VALIDATION) bila `truthStatement !== true`, sebelum membaca apa pun; centang ada di wizard buat, form edit, dan daftar Galang Dana Saya. Waktunya tampil bagi Verifier di halaman moderasi.
+- Tolak final: `final: true` pada PATCH moderasi (hanya berlaku untuk penolakan SUBMISSION). Campaign tetap REJECTED, `rejectionFinal` dan `CampaignStatusChange.final` diset, `submitCampaign` menolak 409 (`RejectedForGoodError`, kode INVALID_TRANSITION), form edit dan tombol ajukan disembunyikan, notifikasi dan email tidak lagi menyuruh mengajukan ulang. Label: REJECTED = "Perlu revisi", final = "Ditolak", SUSPENDED = "Ditangguhkan". Riwayat membaca "Disetujui" untuk SUBMISSION_APPROVED.
+- Riwayat status (`loadCampaignStatusHistory` + `CampaignStatusHistory`) hanya dirender di halaman moderasi (Verifier) dan halaman lifecycle Admin; tidak ada route atau halaman baru, jadi allowlist property test tidak berubah. Tidak ada env var baru.
+- Keputusan terbuka: (1) diselesaikan 2026-11-09, lihat catatan perbaikan review di bawah. (2) `src/__tests__/integration/auth-notifications.test.ts` gagal dua tes sejak tiket 07 (registrasi mewajibkan `acceptTerms`), bukan akibat tiket ini.
+
+- Perbaikan review independen (2026-11-09): (1) `requireContentEditable` menolak Campaign `rejectionFinal` dengan 409 `REJECTED_FINAL` ("ditolak secara final ... tidak dapat diubah lagi"); `lockAndLoad` kini membawa `rejectionFinal`. (2) PATCH `galleryImages` sudah opsional lewat `.partial()`; ditambah tes bahwa tanpa kunci itu galeri tidak disentuh. (3) `campaign-gallery-migration.test.ts` kini menjalankan migrasi pada database berisi (butuh `TEST_DATABASE_URL`, dilewati dengan peringatan bila tidak ada): CHECK menolak 7 gambar, menerima 6, baris lama selamat. Kolom `galleryImages` tetap nullable seperti `String[]` Prisma, jadi CHECK tidak menolak NULL (skema dan SQL konsisten); komentar migrasi diseragamkan ke Bahasa Indonesia. Tes DB belum dijalankan di sesi ini (tidak ada `TEST_DATABASE_URL`). (4) Notifikasi dan email Suspension serta label Volunteer Trip kini "Ditangguhkan" (pesan Flag selesai ikut); "dibekukan" yang tersisa menyangkut dana (Escrow Hold, Frozen Balance), bukan status. (5) Halaman moderasi menyaring galeri dengan `isValidCoverImage` saat render; `next.config` memakai `images.unoptimized`, jadi URL https mana pun aman untuk `<Image>`.

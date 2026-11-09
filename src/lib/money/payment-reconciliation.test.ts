@@ -112,7 +112,7 @@ describe('listReconciliationQueue', () => {
     const queue = await listReconciliationQueue({ webhookEvent, chargeWriteFailure } as never);
 
     const query = webhookEvent.findMany.mock.calls[0][0];
-    expect(query.where).toEqual({ outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] } });
+    expect(query.where).toEqual({ outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] }, resolvedAt: null });
     expect(query.orderBy).toEqual({ receivedAt: 'asc' });
     expect(query.select.payload).toBeUndefined();
     expect(queue.webhookEvents).toEqual([

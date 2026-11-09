@@ -380,7 +380,8 @@ async function main() {
             grossAmount: amount,
             providerFee,
           }),
-          { paymentId: payment.id },
+          // Seed donations are yayasan money, like every donation (ADR 0027).
+          { paymentId: payment.id, merchantEntity: 'YAYASAN' },
         );
       });
       paymentCount++;
@@ -520,27 +521,6 @@ async function main() {
   }
   console.log(`   ✓ ${notifCount} notifications created\n`);
 
-  // 9. Seed Auto Donations (4+)
-  console.log('🔄 Creating auto donation settings...');
-  const autoDonationCategories = ['bencana-alam', 'bantuan-medis', 'kemanusiaan'];
-  let autoDonationCount = 0;
-
-  for (let i = 0; i < 4; i++) {
-    const user = donors[i % donors.length];
-    await prisma.autoDonation.create({
-      data: {
-        amount: randomElement([10000, 25000, 50000, 100000]),
-        category: autoDonationCategories[i],
-        schedule: i % 2 === 0 ? 'weekly' : 'daily',
-        time: `${String(randomInt(6, 21)).padStart(2, '0')}:00`,
-        isActive: Math.random() < 0.75,
-        userId: user.id,
-      },
-    });
-    autoDonationCount++;
-  }
-  console.log(`   ✓ ${autoDonationCount} auto donation settings created\n`);
-
   console.log('═══════════════════════════════════════════');
   console.log('✅ Database seeding complete!');
   console.log('═══════════════════════════════════════════');
@@ -555,7 +535,6 @@ async function main() {
   console.log(`   Bank Accounts:    ${bankAccountByCreatorId.size}`);
   console.log(`   Payouts:          ${payoutCount}`);
   console.log(`   Notifications:    ${notifCount}`);
-  console.log(`   Auto Donations:   ${autoDonationCount}`);
   console.log('');
 }
 

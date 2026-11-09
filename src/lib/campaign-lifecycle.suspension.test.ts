@@ -156,6 +156,16 @@ describe('suspendCampaign', () => {
     expect(db.notifications[0].message).not.toMatch(/moderator/i);
   });
 
+  it('words the Fundraiser notification as Ditangguhkan, the Campaign status label', async () => {
+    const db = makeCampaignDb({ campaigns: [active()] });
+
+    await suspend(db);
+
+    expect(db.notifications[0].title).toBe('Campaign Ditangguhkan');
+    expect(db.notifications[0].message).toContain('ditangguhkan (Suspended)');
+    expect(db.notifications[0].message).not.toMatch(/dibekukan/i);
+  });
+
   it('stores the reason trimmed and accepts exactly 1000 characters', async () => {
     const db = makeCampaignDb({ campaigns: [active()] });
     const reason = 'y'.repeat(1000);

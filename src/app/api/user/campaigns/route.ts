@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { withCountedCollectedAmount } from '@/lib/money/counted-payment';
+import { incomeSummaryForFundraiser } from '@/lib/donation-summaries';
 import { effectiveStatus } from '@/lib/campaign-lifecycle';
 import { VerificationOutcome } from '@/generated/prisma/client';
 
@@ -30,6 +31,8 @@ export async function GET(request: NextRequest) {
         collectedAmount: true,
         targetAmount: true,
         lifecycleStatus: true,
+        // Whether a Rejected Campaign may be submitted again (PKS pasal 3.4).
+        rejectionFinal: true,
         deadline: true,
         createdAt: true,
       },
@@ -58,8 +61,13 @@ export async function GET(request: NextRequest) {
     pendingVerificationRequestId: pendingByCampaign.get(campaign.id) ?? null,
   }));
 
+  // PKS 3.9: settled money in, per Campaign and in all (every Campaign of
+  // this Fundraiser, not just this page).
+  const income = await incomeSummaryForFundraiser(prisma, session.user.id);
+
   return NextResponse.json({
     campaigns,
+    income,
     total,
     page,
     totalPages: Math.ceil(total / limit),

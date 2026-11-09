@@ -35,17 +35,26 @@ function fakePrisma(seed: {
   requests?: Row[];
   organisations?: Row[];
   items?: Row[];
+  payouts?: Row[];
+  /** What the payout row reads as under the lock inside the create transaction, when it moved since the first read. */
+  lockedPayouts?: Row[];
   documents?: Row[];
 }) {
   const documents = [...(seed.documents ?? [])];
   const byId = (rows: Row[] | undefined, id: unknown) => (rows ?? []).find((r) => r.id === id) ?? null;
-  return {
-    documents,
-    prisma: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prisma: any = {
       campaign: { findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.campaigns, where.id)) },
       partnerOrganisation: {
         findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.organisations, where.id)),
       },
+      payout: { findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.payouts, where.id)) },
+      // The create transaction re-reads the Payout row under FOR UPDATE.
+      $queryRaw: vi.fn(async (_strings: TemplateStringsArray, id: unknown) => {
+        const row = byId(seed.lockedPayouts ?? seed.payouts, id);
+        return row ? [{ status: row.status, requestedById: row.requestedById }] : [];
+      }),
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(prisma)),
       verificationChecklistItem: {
         findUnique: vi.fn(async ({ where }: { where: Row }) => byId(seed.items, where.id)),
       },
@@ -74,14 +83,16 @@ function fakePrisma(seed: {
           };
         }),
       },
-    },
   };
+  return { documents, prisma };
 }
 
 const CAMPAIGN = { id: 'c1', creatorId: 'fundraiser', kind: 'DONATION', lifecycleStatus: 'DRAFT' };
 const ITEM = { id: 'identitas-fundraiser', label: 'KTP Fundraiser', active: true, requiresDocument: true, kind: null };
 const ORG = { id: 'org1', fundraiserId: 'org-account' };
 
+const PAYOUT = { id: 'p1', requestedById: 'fundraiser', status: 'DRAFT' };
+const payoutDoc = { uploadedById: 'fundraiser', campaignId: null, partnerOrganisationId: null, payoutId: 'p1' };
 const campaignDoc = { uploadedById: 'fundraiser', campaignId: 'c1', partnerOrganisationId: null };
 const orgDoc = { uploadedById: 'verifier-a', campaignId: null, partnerOrganisationId: 'org1' };
 
@@ -232,7 +243,7 @@ describe('uploadDocument and readDocument against a real directory', () => {
     expect(row.storagePath).toMatch(/^[0-9a-f]{2}\/[0-9a-f]{64}$/);
     expect(row).toMatchObject({ uploadedById: 'fundraiser', campaignId: 'c1', partnerOrganisationId: null });
     const written = join(root, row.storagePath as string);
-    expect(new Uint8Array(await readFile(written))).toEqual(PDF);
+    expect((await readFile(written)).subarray(0, 8).toString("latin1")).toBe("FFIDOC1\0"); // sealed at rest, see document-encryption.test.ts
     expect((await stat(written)).mode & 0o077).toBe(0);
 
     const mine = await readDocument(db.prisma as never, { documentId: row.id as string, viewer: viewer('fundraiser'), root });
@@ -342,5 +353,113 @@ describe('uploadDocument and readDocument against a real directory', () => {
         root: null,
       }),
     ).rejects.toEqual(new DocumentRefusedError('Penyimpanan dokumen belum dikonfigurasi.', 503));
+  });
+});
+
+describe('canReadDocument: a Payout supporting document (PKS Pasal 4.5)', () => {
+  const db = () => fakePrisma({ payouts: [PAYOUT] }).prisma as never;
+
+  it('is opened by its uploader and by the Fundraiser who requested the Payout', async () => {
+    expect(await canReadDocument(db(), payoutDoc, viewer('fundraiser'))).toBe(true);
+    expect(await canReadDocument(db(), { ...payoutDoc, uploadedById: 'someone' }, viewer('fundraiser'))).toBe(true);
+  });
+
+  it('is opened by an Admin', async () => {
+    expect(await canReadDocument(db(), payoutDoc, viewer('admin', 'ADMIN'))).toBe(true);
+  });
+
+  it('is refused to a Verifier, a Donor and another Fundraiser: owner and Admin only', async () => {
+    expect(await canReadDocument(db(), payoutDoc, viewer('verifier-a', 'VERIFIER'))).toBe(false);
+    expect(await canReadDocument(db(), payoutDoc, viewer('donor'))).toBe(false);
+    expect(await canReadDocument(db(), payoutDoc, viewer('other-fundraiser'))).toBe(false);
+  });
+
+  it('is refused when the Payout is gone', async () => {
+    const empty = fakePrisma({}).prisma as never;
+    expect(await canReadDocument(empty, { ...payoutDoc, uploadedById: 'someone' }, viewer('fundraiser'))).toBe(false);
+  });
+});
+
+describe('uploadDocument for a Payout (PKS Pasal 4.5)', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'ffi-docs-'));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  const pdf = { bytes: PDF, declaredType: 'application/pdf', size: PDF.length };
+
+  it("stores the Payout's Fundraiser's paper with a title, owned by the Payout and no checklist item", async () => {
+    const db = fakePrisma({ payouts: [PAYOUT] });
+
+    const summary = await uploadDocument(db.prisma as never, {
+      actor: viewer('fundraiser'),
+      file: pdf,
+      target: { payoutId: 'p1', label: '  Nota pembelian  ' },
+      root,
+    });
+
+    expect(summary).toMatchObject({ label: 'Nota pembelian', checklistItemId: null });
+    expect(db.documents[0]).toMatchObject({ uploadedById: 'fundraiser', payoutId: 'p1', campaignId: null, partnerOrganisationId: null, checklistItemId: null });
+    const mine = await readDocument(db.prisma as never, { documentId: db.documents[0].id as string, viewer: viewer('fundraiser'), root });
+    expect(new Uint8Array(mine!.bytes)).toEqual(PDF);
+    const admin = await readDocument(db.prisma as never, { documentId: db.documents[0].id as string, viewer: viewer('admin', 'ADMIN'), root });
+    expect(admin).not.toBeNull();
+    const verifier = await readDocument(db.prisma as never, { documentId: db.documents[0].id as string, viewer: viewer('v', 'VERIFIER'), root });
+    expect(verifier).toBeNull();
+  });
+
+  it('also takes papers while the Payout is awaiting revision', async () => {
+    const db = fakePrisma({ payouts: [{ ...PAYOUT, status: 'REVISION_REQUESTED' }] });
+    await expect(
+      uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+    ).resolves.toMatchObject({ label: 'RAB' });
+  });
+
+  it("answers someone else's Payout, and an Admin's attempt, as a missing Payout, writing nothing", async () => {
+    const db = fakePrisma({ payouts: [PAYOUT] });
+    for (const actor of [viewer('stranger'), viewer('admin', 'ADMIN'), viewer('v', 'VERIFIER')]) {
+      await expect(
+        uploadDocument(db.prisma as never, { actor, file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+      ).rejects.toMatchObject({ status: 404 });
+    }
+    expect(db.documents).toEqual([]);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it.each(['APPROVED', 'COMPLETED', 'REJECTED', 'FAILED'])('refuses a Payout that is %s (409): the papers were judged already', async (status) => {
+    const db = fakePrisma({ payouts: [{ ...PAYOUT, status }] });
+    await expect(
+      uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('re-checks the Payout under its row lock when the paper is recorded: one decided in between takes no paper, and its file is removed', async () => {
+    for (const locked of [{ ...PAYOUT, status: 'APPROVED' }, { ...PAYOUT, status: 'REJECTED' }]) {
+      const db = fakePrisma({ payouts: [PAYOUT], lockedPayouts: [locked] });
+      await expect(
+        uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(db.documents).toEqual([]);
+      expect((await readdir(root, { recursive: true, withFileTypes: true })).filter((e) => e.isFile())).toEqual([]);
+    }
+  });
+
+  it('re-checks the requester under the lock too: a Payout that is not the actor\'s answers as missing', async () => {
+    const db = fakePrisma({ payouts: [PAYOUT], lockedPayouts: [{ ...PAYOUT, requestedById: 'someone-else' }] });
+    await expect(
+      uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label: 'RAB' }, root }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(db.documents).toEqual([]);
+  });
+
+  it('requires a title within the length limit', async () => {
+    const db = fakePrisma({ payouts: [PAYOUT] });
+    for (const label of ['   ', 'x'.repeat(121)]) {
+      await expect(
+        uploadDocument(db.prisma as never, { actor: viewer('fundraiser'), file: pdf, target: { payoutId: 'p1', label }, root }),
+      ).rejects.toMatchObject({ status: 400 });
+    }
   });
 });

@@ -107,6 +107,9 @@ const CATALOGUE_DECISION_READERS = [
   'src/app/explore/[category]/page.tsx',
   'src/app/page.tsx',
   'src/components/collecting-entity/AssignCollectingEntityScreen.tsx',
+  // The public organisation profile (/lembaga/[id], PKS 12(5)) lists the
+  // organisation's Campaigns exactly as the public catalogue does.
+  'src/lib/organisation-profile.ts',
   'src/lib/subject-guard.ts',
 ];
 const ASKS_THE_DECISION = /\b(showDemoCampaigns|catalogueDemoWhere|listableCampaignWhere|SHOW_DEMO_CAMPAIGNS)\b/;

@@ -40,6 +40,8 @@ describe('RegisterPage, sign-in by code', () => {
     render(<RegisterPage />);
     fireEvent.change(screen.getByLabelText(/nama lengkap/i), { target: { value: 'Sari' } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'sari@example.test' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Syarat Layanan/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Kebijakan Privasi/ }));
     fireEvent.click(screen.getByRole('button', { name: /daftar/i }));
 
     await screen.findByLabelText(/kode masuk/i);
@@ -56,10 +58,19 @@ describe('RegisterPage, sign-in by code', () => {
     render(<RegisterPage />);
     fireEvent.change(screen.getByLabelText(/nama lengkap/i), { target: { value: 'Sari' } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'sari@example.test' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Syarat Layanan/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Kebijakan Privasi/ }));
     fireEvent.click(screen.getByRole('button', { name: /daftar/i }));
 
     const input = await screen.findByLabelText(/kode masuk/i);
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ name: 'Sari', email: 'sari@example.test' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      name: 'Sari',
+      email: 'sari@example.test',
+      whatsapp: '',
+      profileType: 'INDIVIDUAL',
+      acceptTerms: true,
+      acceptPrivacy: true,
+    });
     expect(fetchMock.mock.calls[1][0]).toBe('/api/auth/login-code');
 
     fireEvent.change(input, { target: { value: '123456' } });

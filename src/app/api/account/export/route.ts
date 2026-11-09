@@ -45,6 +45,8 @@ export async function GET() {
         name: true,
         avatar: true,
         emailVerifiedAt: true,
+        profileType: true,
+        consents: { orderBy: { acceptedAt: 'asc' }, select: { document: true, version: true, acceptedAt: true } },
         donationBalance: true,
         createdAt: true,
         assignments: { select: { assignment: true, assignedAt: true } },
@@ -87,6 +89,7 @@ export async function GET() {
         beneficiaryName: true,
         beneficiaryDescription: true,
         beneficiaryCount: true,
+        beneficiaryRelationship: true,
         createdAt: true,
       },
     }),
@@ -106,12 +109,14 @@ export async function GET() {
       phone: readUserPhone(user),
       avatar: user.avatar,
       emailVerifiedAt: user.emailVerifiedAt,
+      profileType: user.profileType,
       donationBalance: user.donationBalance,
       createdAt: user.createdAt,
     },
     donasi: donations,
     kampanye: campaigns,
     penugasan: user.assignments,
+    persetujuan: user.consents,
   };
 
   return new NextResponse(JSON.stringify(body, null, 2), {

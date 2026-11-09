@@ -62,4 +62,14 @@ describe('payoutStatusEmail', () => {
   it('greets without a name when the Fundraiser has none', () => {
     expect(mail({ fundraiserName: null }).text.startsWith('Halo,')).toBe(true);
   });
+
+  it('asks for a revision with the Admin reason, says no money moved, and escapes the reason', () => {
+    const m = mail({ event: 'revision_requested', reason: 'Lampirkan RAB <script>x</script>\nterbaru' } as Partial<PayoutStatusEmailInput>);
+    expect(m.subject).toBe('Pencairan dana "Bantu Korban Banjir" perlu direvisi');
+    expect(m.text).toContain('Alasan dari Admin: Lampirkan RAB <script>x</script> terbaru');
+    expect(m.text).toContain('Dana belum bergerak');
+    expect(m.text).toContain(BASE.statusUrl);
+    expect(m.html).not.toContain('<script>');
+    expect(m.subject).not.toMatch(/\n/);
+  });
 });

@@ -114,8 +114,8 @@ function balanceCheckUrl(payoutId: string): string {
   return `/api/admin/payouts/${payoutId}/balance-check`;
 }
 
-/** The reject (DRAFT) and fail (APPROVED) routes: Payout-id-only like balance-check. */
-function resolveUrl(payoutId: string, action: 'reject' | 'fail'): string {
+/** The reject (DRAFT or REVISION_REQUESTED), fail (APPROVED) and request-revision (DRAFT) routes: Payout-id-only like balance-check. */
+function resolveUrl(payoutId: string, action: 'reject' | 'fail' | 'request-revision'): string {
   return `/api/admin/payouts/${payoutId}/${action}`;
 }
 
@@ -142,6 +142,8 @@ export function AdminPayoutActionForm({
 
   // Reject / fail reason
   const [reason, setReason] = useState('');
+  // Revision reason (PKS Pasal 4.5): its own field, so a reason typed for one act is never sent for the other.
+  const [revisionReason, setRevisionReason] = useState('');
 
   async function post(url: string, body: Record<string, unknown>, genericError: string) {
     setSubmitting(true);
@@ -274,6 +276,34 @@ export function AdminPayoutActionForm({
 
         <div className="space-y-2 border-t border-gray-200 pt-3">
           <label className="block text-sm text-gray-700">
+            Alasan meminta revisi
+            <input
+              aria-label="Alasan meminta revisi"
+              value={revisionReason}
+              maxLength={500}
+              onChange={(e) => setRevisionReason(e.target.value)}
+              placeholder="mis. Lampirkan RAB yang terbaru"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={revisionReason.trim() === '' || submitting}
+            onClick={() =>
+              post(resolveUrl(payoutId, 'request-revision'), { reason: revisionReason }, 'Gagal meminta revisi.')
+            }
+            className="w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 disabled:opacity-50"
+          >
+            Minta revisi
+          </button>
+          <p className="text-xs text-gray-500">
+            Dikembalikan ke Fundraiser dengan alasan ini dan diberitahukan lewat notifikasi dan email. Tidak ada
+            uang yang bergerak; Payout tidak bisa disetujui sampai diajukan ulang.
+          </p>
+        </div>
+
+        <div className="space-y-2 border-t border-gray-200 pt-3">
+          <label className="block text-sm text-gray-700">
             Alasan menolak
             <input
               aria-label="Alasan menolak"
@@ -296,6 +326,41 @@ export function AdminPayoutActionForm({
           </p>
         </div>
 
+        {refusal && (
+          <p role="alert" className="text-sm text-danger">
+            {refusal}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === 'REVISION_REQUESTED') {
+    return (
+      <div className="space-y-3">
+        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Menunggu Fundraiser memperbaiki dan mengajukan ulang. Payout ini tidak bisa disetujui sebelum itu.
+        </p>
+        <div className="space-y-2 border-t border-gray-200 pt-3">
+          <label className="block text-sm text-gray-700">
+            Alasan menolak
+            <input
+              aria-label="Alasan menolak"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="mis. Tidak dilengkapi, ajukan ulang sebagai Payout baru"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={reason.trim() === '' || submitting}
+            onClick={() => post(resolveUrl(payoutId, 'reject'), { reason }, 'Gagal menolak Payout.')}
+            className="w-full rounded-lg border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 disabled:opacity-50"
+          >
+            Tolak Payout
+          </button>
+        </div>
         {refusal && (
           <p role="alert" className="text-sm text-danger">
             {refusal}

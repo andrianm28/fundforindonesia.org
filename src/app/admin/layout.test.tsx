@@ -5,6 +5,9 @@ vi.mock("@/lib/auth", () => ({
   getServerSession: vi.fn(),
 }));
 
+// The layout reads the zakat switch for the menu; no row means off.
+vi.mock("@/lib/prisma", () => ({ prisma: { siteSetting: { findUnique: vi.fn().mockResolvedValue(null) } } }));
+
 const mockPathname = vi.hoisted(() => ({ value: "/admin" }));
 
 vi.mock("next/navigation", () => ({

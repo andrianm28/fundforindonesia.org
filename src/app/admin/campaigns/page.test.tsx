@@ -98,9 +98,9 @@ describe('AdminCampaignsPage status badges', () => {
     const statuses: [CampaignStatus, string][] = [
       ['DRAFT', 'Draf'],
       ['SUBMITTED', 'Diajukan'],
-      ['REJECTED', 'Ditolak'],
+      ['REJECTED', 'Perlu revisi'],
       ['ACTIVE', 'Aktif'],
-      ['SUSPENDED', 'Dibekukan'],
+      ['SUSPENDED', 'Ditangguhkan'],
       ['CANCELLED', 'Ditarik'],
       ['COMPLETED', 'Selesai'],
       ['EXPIRED', 'Berakhir'],

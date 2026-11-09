@@ -333,3 +333,50 @@ describe('AdminPayoutActionForm -- rejecting a DRAFT and failing an APPROVED Pay
     expect(await screen.findByRole('alert')).toHaveTextContent('Payout tidak lagi menunggu persetujuan.');
   });
 });
+
+describe('AdminPayoutActionForm -- asking for a revision (PKS Pasal 4.5)', () => {
+  const baseProps = {
+    payoutId: 'payout-1',
+    status: 'DRAFT' as const,
+    subject: { type: 'campaign' as const, slug: 'sumur-desa' },
+    actorId: 'admin-2',
+    requestedById: 'fundraiser-1',
+    approvedById: null,
+  };
+
+  it('posts the reason to the Payout-id-only request-revision route, button disabled until it is typed', async () => {
+    mockFetch.mockImplementation(() => ok({ id: 'payout-1', status: 'REVISION_REQUESTED' }));
+    render(<AdminPayoutActionForm {...baseProps} />);
+
+    const button = screen.getByRole('button', { name: 'Minta revisi' });
+    expect(button).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Alasan meminta revisi'), { target: { value: 'Lampirkan RAB' } });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/admin/payouts/payout-1/request-revision');
+    expect(JSON.parse(init.body)).toEqual({ reason: 'Lampirkan RAB' });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+  });
+
+  it("shows the server's refusal in its own words", async () => {
+    mockFetch.mockImplementation(() => refused(409, { error: 'Payout tidak lagi menunggu persetujuan.' }));
+    render(<AdminPayoutActionForm {...baseProps} />);
+
+    fireEvent.change(screen.getByLabelText('Alasan meminta revisi'), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Minta revisi' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('tidak lagi menunggu persetujuan');
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it('offers neither approval nor revision on a Payout already in revision, only the way out (reject)', () => {
+    render(<AdminPayoutActionForm {...baseProps} status="REVISION_REQUESTED" />);
+
+    expect(screen.queryByRole('button', { name: /setujui/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Minta revisi' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Tolak Payout' })).toBeDisabled();
+  });
+});

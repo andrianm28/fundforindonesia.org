@@ -6,7 +6,7 @@ vi.mock('@/lib/prisma', () => ({
     campaign: { findUnique: vi.fn() },
     campaignFlag: { findMany: vi.fn() },
     cancellationRequest: { findFirst: vi.fn() },
-    campaignStatusChange: { findFirst: vi.fn() },
+    campaignStatusChange: { findFirst: vi.fn(), findMany: vi.fn(async () => []) },
   },
 }));
 
@@ -38,6 +38,7 @@ const ACTIVE_CAMPAIGN = {
   deadline: new Date('2027-01-01T00:00:00.000Z'),
   creatorId: 'fundraiser-1',
   isUrgent: false,
+  rejectionFinal: false,
 };
 
 /** An open Flag row as the page reads it: the Verifier is a relation, the instant a Date. */
@@ -73,6 +74,38 @@ describe('AdminCampaignLifecyclePage (ticket 25)', () => {
     expect(screen.getByText('Laporan donatur mencurigakan.')).toBeDefined();
     expect(screen.getByLabelText(/alasan suspension/i)).toBeDefined();
     expect(prisma.campaignStatusChange.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('shows the Campaign\'s status history, oldest first, with who acted and why (PKS pasal 3.4)', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue(ACTIVE_CAMPAIGN as never);
+    vi.mocked(prisma.campaignFlag.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.cancellationRequest.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.campaignStatusChange.findMany).mockResolvedValue([
+      { id: 'c1', action: 'SUBMITTED', final: false, capacity: 'FUNDRAISER', reason: null, createdAt: new Date('2026-10-01T01:00:00Z'), actor: { name: 'Siti' } },
+      { id: 'c2', action: 'SUBMISSION_APPROVED', final: false, capacity: 'VERIFIER', reason: null, createdAt: new Date('2026-10-02T01:00:00Z'), actor: { name: 'Budi' } },
+    ] as never);
+
+    render(await AdminCampaignLifecyclePage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
+
+    const history = screen.getByRole('region', { name: 'Riwayat Status' });
+    expect(within(history).getAllByRole('listitem').map((li) => li.querySelector('p')?.textContent)).toEqual(['Diajukan', 'Disetujui']);
+    expect(prisma.campaignStatusChange.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { campaignId: 'campaign-1' } }),
+    );
+  });
+
+  it('badges a Campaign the Verifier rejected for good as Ditolak, and a revisable one as Perlu revisi', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.campaignFlag.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.cancellationRequest.findFirst).mockResolvedValue(null);
+
+    for (const [rejectionFinal, label] of [[true, 'Ditolak'], [false, 'Perlu revisi']] as const) {
+      vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...ACTIVE_CAMPAIGN, lifecycleStatus: 'REJECTED', rejectionFinal } as never);
+      const { unmount } = render(await AdminCampaignLifecyclePage({ params: Promise.resolve({ slug: 'sumur-desa' }) }));
+      expect(screen.getByText(label)).toBeDefined();
+      unmount();
+    }
   });
 
   it('shows the lift form for a SUSPENDED Campaign, looking up who imposed it', async () => {

@@ -1,4 +1,4 @@
-import type { CampaignStatus, Kind } from '@/generated/prisma/client';
+import type { CampaignStatus, Kind, VerificationRequestKind } from '@/generated/prisma/client';
 import { sealBankAccountNumber, sealUserEmail } from '@/lib/contact-fields';
 
 /**
@@ -34,6 +34,8 @@ export type CampaignRow = {
   targetAmount: number;
   /** The Partner Organisation it collects under; `partner-1` unless a test says otherwise. */
   collectingEntityId: string | null;
+  /** True once a Verifier rejected it for good (PKS pasal 3.4); `false` as the column defaults. */
+  rejectionFinal?: boolean;
 };
 
 export type PartnerOrganisationRow = {
@@ -43,6 +45,11 @@ export type PartnerOrganisationRow = {
   acceptsIndividualCampaigns: boolean;
   registeredById: string;
   registeredAt: Date;
+  address?: string | null;
+  responsiblePersonName?: string | null;
+  responsiblePersonTitle?: string | null;
+  responsiblePersonPhoneCiphertext?: string | null;
+  responsiblePersonPhoneKeyId?: string | null;
 };
 
 export type FundraisingPermitRow = {
@@ -118,6 +125,8 @@ export type StatusChangeRow = {
   actorId: string | null;
   capacity: string;
   reason: string | null;
+  /** On a final SUBMISSION_REJECTED only (PKS pasal 3.4); absent means `false`, as the column defaults. */
+  final?: boolean;
   createdAt: Date;
 };
 
@@ -187,6 +196,10 @@ export type ChecklistItemRow = {
   kind: Kind | null;
   /** Whether ticking it needs a Document on the Campaign (ticket 64). */
   requiresDocument: boolean;
+  /** Which kinds of Verification Request snapshot it; every kind unless narrowed. */
+  requestKinds: VerificationRequestKind[];
+  /** Null asks both an individual and an organisation's account. */
+  applicant: 'INDIVIDUAL' | 'ORGANISATION' | null;
 };
 
 /** A private Document's row (ticket 64): only what the lifecycle reads. */
@@ -217,6 +230,8 @@ export type VerificationRequestRow = {
   kind?: 'SUBMISSION' | 'CHANGE' | 'AMOUNT_REVIEW';
   /** The Gross and threshold that raised an AMOUNT_REVIEW, or null. */
   raisedByAmount?: unknown;
+  /** When the Fundraiser ticked the truth statement (PKS pasal 3.3); set on a SUBMISSION. */
+  truthStatementAcceptedAt?: Date | null;
 };
 
 export type ChecklistAuditRow = {
@@ -336,6 +351,8 @@ function matchesField(actual: unknown, filter: unknown): boolean {
         return matchesField(actual, operand);
       case 'in':
         return (operand as unknown[]).includes(actual);
+      case 'has':
+        return Array.isArray(actual) && actual.includes(operand);
       case 'gt':
         return actual !== null && actual !== undefined && comparable(actual) > comparable(operand);
       case 'gte':
@@ -477,6 +494,8 @@ export function checklistItemRow(overrides: Partial<ChecklistItemRow> = {}): Che
     active: true,
     kind: null,
     requiresDocument: false,
+    requestKinds: ['SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW'],
+    applicant: null,
     ...overrides,
   };
 }
@@ -883,8 +902,8 @@ export function makeCampaignDb(
           const row = getData().checklistItems.find((i) => matches(i, where));
           return row ? { ...row } : null;
         },
-        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind' | 'requiresDocument'> & { active?: boolean; kind?: Kind | null; requiresDocument?: boolean } }) => {
-          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, requiresDocument: false, ...data };
+        create: async ({ data }: { data: Omit<ChecklistItemRow, 'id' | 'active' | 'kind' | 'requiresDocument' | 'requestKinds' | 'applicant'> & { active?: boolean; kind?: Kind | null; requiresDocument?: boolean } }) => {
+          const row: ChecklistItemRow = { id: `item-${nextId++}`, active: true, kind: null, requiresDocument: false, requestKinds: ['SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW'], applicant: null, ...data };
           getData().checklistItems.push(row);
           return { ...row };
         },
@@ -920,7 +939,7 @@ export function makeCampaignDb(
         },
       },
       verificationRequest: {
-        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedById?: string | null; submittedAt?: Date; proposedChanges?: unknown; kind?: VerificationRequestRow['kind']; raisedByAmount?: unknown } }) => {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedById?: string | null; submittedAt?: Date; proposedChanges?: unknown; kind?: VerificationRequestRow['kind']; raisedByAmount?: unknown; truthStatementAcceptedAt?: Date } }) => {
           const row: VerificationRequestRow = {
             id: `verification-${nextId++}`,
             submittedById: 'creator-1',

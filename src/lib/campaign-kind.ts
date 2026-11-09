@@ -20,6 +20,19 @@ export type CampaignKind = Kind;
  */
 export const KINDS = ["DONATION", "WAKAF", "HIBAH"] as const satisfies readonly CampaignKind[];
 
+/**
+ * The Kinds a permit or a Kind Authorisation may be recorded for: the offered
+ * ones plus `ZAKAT`. Recording a licence is not collecting, so it is not behind
+ * the zakat switch (ADR 0028); collecting is (src/lib/zakat.ts).
+ */
+export const RECORDABLE_KINDS = [...KINDS, "ZAKAT"] as const satisfies readonly CampaignKind[];
+
+/** Narrows a string to a Kind a licence may be recorded for, case-insensitively. */
+export function parseRecordableKind(value: string): CampaignKind | null {
+  const upper = value.toUpperCase();
+  return RECORDABLE_KINDS.find((kind) => kind === upper) ?? null;
+}
+
 /** The Indonesian name of each Kind, as screens show it. */
 export const KIND_LABEL: Record<CampaignKind, string> = {
   DONATION: "Donasi",

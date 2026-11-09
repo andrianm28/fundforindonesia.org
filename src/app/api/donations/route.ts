@@ -13,11 +13,13 @@ import {
   DONATIONS_DISABLED_MESSAGE,
   MIN_DONATION_AMOUNT,
 } from '@/lib/donations';
+import { donationsSwitchedOff } from '@/lib/operations';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 import { formatRupiah } from '@/lib/utils/currency';
 import { campaignAcceptsDonations, donationBlock, expireIfPastDeadline } from "@/lib/campaign-lifecycle";
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { donationRefusalCopy } from '@/lib/campaign-page-status';
-import { chargeDonation } from '@/lib/money/donation-charge';
+import { createChargedDonation } from '@/lib/money/create-charged-donation';
 import { VALID_PAYMENT_METHODS, PROVIDER_METHOD_FOR, paymentInstructionsFor } from '@/lib/money/payment-method-map';
 import { sanitizeTrafficSource } from '@/lib/traffic-source';
 
@@ -73,6 +75,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
   }
 
+  // The second lock: an Admin can close the gate from the panel without a
+  // rebuild (src/lib/operations.ts). It only ever adds a refusal.
+  if (await donationsSwitchedOff(prisma)) {
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     // 1. Parse and validate request body
     const body = await request.json();
@@ -121,6 +129,14 @@ export async function POST(request: NextRequest) {
         { error: 'Ini adalah campaign contoh dan tidak dapat menerima donasi.' },
         { status: 403 }
       );
+    }
+
+    // Zakat adds no money path: it is this route, for a Campaign of Kind
+    // ZAKAT, behind the module's switch and its configured recipient (ADR
+    // 0028). Judged before anything else about the Campaign is revealed.
+    const zakatRefusal = await zakatCheckoutRefusal(prisma, campaign);
+    if (zakatRefusal) {
+      return NextResponse.json({ error: zakatRefusal.error }, { status: zakatRefusal.status });
     }
 
     const now = new Date();
@@ -228,31 +244,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. Create the Donation, commit, and only then call the provider.
-    //
-    // The charge used to run inside this transaction so a failed charge
-    // rolled the Donation back. That was safe only while the provider did no
-    // I/O: a real adapter makes this an HTTP round trip, and holding a
-    // pooled connection and row locks across one is how provider latency
-    // exhausts the pool and takes the whole site down.
-    //
-    // What the transaction actually protected is still protected. A Payment
-    // without its Donation is money with no owner; that cannot happen now,
-    // because the Donation is committed first. The case this opens instead
-    // is a Donation with no Payment, which is a donation nobody can pay --
-    // recoverable, visible, and explicitly marked failed below.
-    //
-    // No ledger entries here either: a pending payment has moved no money,
-    // and posting on creation is how a campaign would show funds for a
-    // donation that was never paid.
-    const donation = await prisma.donation.create({
-      data: {
+    // 6. Create the Donation, commit, and only then call the provider --
+    // createChargedDonation (src/lib/money/create-charged-donation.ts), the one
+    // place a Donation and its first charge come into being, shared with the
+    // recurring donation job. The reasoning for committing before the charge
+    // lives there. The donation id IS the provider's order id.
+    const created = await createChargedDonation({
+      provider,
+      campaign,
+      method: wantedMethod,
+      donation: {
         amount,
         isAnonymous,
         paymentMethod,
-        paymentStatus: 'pending',
         message: message || null,
-        campaignId,
         donorId,
         trafficSource: sanitizedTrafficSource,
         ikrarConfirmed,
@@ -271,36 +276,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // The donation id IS the provider's order id -- the webhook gets only an
-    // order id back and finds this Payment by providerRef, so the two must be
-    // the same value from the start.
-    const charged = await chargeDonation({
-      db: prisma,
-      provider,
-      campaign,
-      donationId: donation.id,
-      amount,
-      orderId: donation.id,
-      paymentMethod: wantedMethod,
-    });
-
-    if (!charged.ok) {
-      // The Donation is already committed. Left at 'pending' it would sit in
-      // the donor's history as an unfinished payment they can neither
-      // complete nor understand, so it is closed out here.
-      console.error(`[donations] charge failed for donation ${donation.id}: ${charged.reason}`);
-      await prisma.donation.update({
-        where: { id: donation.id },
-        data: { paymentStatus: 'failed' },
-      });
+    if (!created.ok) {
       const errorMessage =
-        charged.reason === 'method_unavailable'
+        created.reason === 'method_unavailable'
           ? 'Metode pembayaran ini belum tersedia. Silakan pilih metode lain.'
           : 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.';
       return NextResponse.json({ error: errorMessage }, { status: 503 });
     }
 
-    const charge = charged.charge;
+    const { donation, charge } = created;
 
     // 7. If message is provided, create a Prayer record linked to the donation
     if (message) {

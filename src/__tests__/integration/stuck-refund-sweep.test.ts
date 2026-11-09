@@ -165,7 +165,7 @@ describe.skipIf(!DATABASE_URL)('sweepStuckLateSettlementRefunds -- against real 
       await postTransaction(
         tx,
         paymentSettledLegs({ subject: { type: 'trip', tripId: ctx.tripId }, grossAmount: 500_000, providerFee: 0 }),
-        { paymentId: payment.id, transactionId: `settle-${payment.id}` },
+        { merchantEntity: 'YAYASAN', paymentId: payment.id, transactionId: `settle-${payment.id}` },
       );
     });
     // Pin the settlement's database time relative to the status change. The
@@ -336,7 +336,7 @@ describe.skipIf(!DATABASE_URL)('sweepStuckLateSettlementRefunds -- against real 
       await postTransaction(
         tx,
         paymentSettledLegs({ subject: { type: 'trip', tripId: ctx.tripId }, grossAmount: 500_000, providerFee: 0 }),
-        { paymentId, transactionId: `settle-${paymentId}` },
+        { merchantEntity: 'YAYASAN', paymentId, transactionId: `settle-${paymentId}` },
       );
     });
   }

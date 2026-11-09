@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { formatRupiah } from '@/lib/utils/currency';
 import { getRemainingDays } from '@/lib/utils/date';
@@ -18,9 +19,11 @@ import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
 import { campaignLocationLabel } from '@/lib/campaign-location';
 import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
+import { isValidCoverImage } from '@/lib/cover-image';
 import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 import { CampaignUpdatesTab } from './CampaignUpdatesTab';
+import { TopDonorsTab } from './TopDonorsTab';
 
 export interface CampaignDetailData {
   id: string;
@@ -29,12 +32,16 @@ export interface CampaignDetailData {
   description: string;
   story: string;
   coverImage: string;
+  /** Extra photos beside the cover, up to six (PKS pasal 3.3); absent on a Campaign with none. */
+  galleryImages?: readonly string[];
   targetAmount: number;
   collectedAmount: number;
   /** Beta only: the Gross of sandbox Payments settled for this Campaign, shown
    * as "Donasi uji". `null` (or absent) when the beta marker is off. */
   testDonationAmount?: number | null;
   category: string;
+  /** The Campaign's kind; a `WAKAF` one takes no recurring donation (ikrar each time). */
+  kind?: 'DONATION' | 'ZAKAT' | 'WAKAF' | 'HIBAH';
   /** Effective status: an Active Campaign past its deadline arrives as EXPIRED. */
   lifecycleStatus: CampaignLifecycleStatus;
   isUrgent: boolean;
@@ -54,6 +61,8 @@ export interface CampaignDetailData {
     name: string;
     avatar: string | null;
   };
+  /** Who collects the money (ADR 0010); links to its public profile. */
+  collectingEntity?: { id: string; name: string } | null;
   donationCount: number;
   /** The Platform Fee rate in force for this Campaign right now, in basis
    * points (CONTEXT.md, Platform Fee; prd-compliance 17) -- resolved
@@ -223,7 +232,17 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // stays a plain, unwired button, exactly as all three were before this
   // ticket -- adding it is a separate concern this ticket does not touch.
   const [shareOpen, setShareOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'disbursements'>('story');
+  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'donors' | 'disbursements'>('story');
+  // A second, independent check at render, as the usage report photos get: only an upload path or an https URL is ever shown.
+  const galleryImages = (campaign.galleryImages ?? []).filter(isValidCoverImage);
+
+  // "Donasi rutin" (PKS 4.7): the page is cached for every visitor, so whether
+  // to offer it is decided here from the session. Only an account can hold a
+  // recurring donation, and only a Campaign that takes donations and is not
+  // wakaf (a bill cannot carry the ikrar) or a demo. The server decides again.
+  const { data: session } = useSession();
+  const offersRecurring =
+    !!session?.user?.id && offersDonating(lifecycleStatus) && campaign.kind !== 'WAKAF' && !campaign.isDemo;
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
@@ -513,10 +532,18 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
                 {campaign.creator.name}
               </span>
             </div>
+            {campaign.collectingEntity && (
+              <p className="text-xs text-text-secondary truncate">
+                Dihimpun oleh{' '}
+                <Link href={`/lembaga/${campaign.collectingEntity.id}`} className="text-primary hover:underline">
+                  {campaign.collectingEntity.name}
+                </Link>
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Tab navigation: Cerita, Kabar Terbaru, Pencairan Dana. */}
+        {/* Tab navigation: Cerita, Kabar Terbaru, Donatur teratas, Pencairan Dana. */}
         <div className="flex gap-4 border-b border-border mb-4">
           <button
             onClick={() => setActiveTab('story')}
@@ -541,6 +568,18 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
               Kabar Terbaru
             </button>
           )}
+          {isPubliclyViewable(lifecycleStatus) && (
+            <button
+              onClick={() => setActiveTab('donors')}
+              className={
+                activeTab === 'donors'
+                  ? 'pb-2 text-sm font-medium text-primary border-b-2 border-primary'
+                  : 'pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors'
+              }
+            >
+              Donatur teratas
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('disbursements')}
             className={
@@ -554,15 +593,32 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         </div>
 
         {activeTab === 'story' ? (
-          <div
-            // The story is the Fundraiser's own plain text (a textarea), so it
-            // renders as text: markup in it shows as typed and never runs.
-            className="text-sm max-w-none text-text leading-relaxed whitespace-pre-line break-words"
-          >
-            {campaign.story}
-          </div>
+          <>
+            <div
+              // The story is the Fundraiser's own plain text (a textarea), so it
+              // renders as text: markup in it shows as typed and never runs.
+              className="text-sm max-w-none text-text leading-relaxed whitespace-pre-line break-words"
+            >
+              {campaign.story}
+            </div>
+            {galleryImages.length > 0 && (
+              <section aria-label="Galeri foto" className="mt-6">
+                <h2 className="text-sm font-semibold text-text mb-2">Galeri</h2>
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {galleryImages.map((src) => (
+                    <li key={src}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={src} alt={`Galeri ${campaign.title}`} loading="lazy" className="w-full h-32 object-cover rounded-lg" />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
         ) : activeTab === 'updates' ? (
           <CampaignUpdatesTab slug={campaign.slug} />
+        ) : activeTab === 'donors' ? (
+          <TopDonorsTab slug={campaign.slug} />
         ) : (
           <DisbursementsTab slug={campaign.slug} />
         )}
@@ -583,6 +639,14 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
             >
               Donasi sekarang
             </Link>
+            {offersRecurring && (
+              <Link
+                href={`/akun/donasi-rutin?campaign=${campaign.id}`}
+                className="mt-2 block text-center text-sm font-medium text-primary hover:underline"
+              >
+                Donasi rutin
+              </Link>
+            )}
           </div>
         </div>
       )}

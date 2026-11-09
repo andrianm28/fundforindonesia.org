@@ -335,7 +335,8 @@ describe('DonatePage and the Collecting Entity (prd-compliance 10)', () => {
   it('names who collects the money above the amount', () => {
     activeCampaign({ donationBlock: null, collectingEntity: { id: 'yiem', name: 'Yayasan Indonesia Emas Merdeka' } });
     render(<DonatePage />);
-    expect(screen.getByText('Dihimpun oleh Yayasan Indonesia Emas Merdeka')).toBeDefined();
+    expect(screen.getByText(/Dihimpun oleh/)).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Yayasan Indonesia Emas Merdeka' }).getAttribute('href')).toBe('/lembaga/yiem');
     expect(screen.getByText('pick amount')).toBeDefined();
   });
 });

@@ -55,6 +55,10 @@ const DRAFT_PAYOUT = {
     checkedBy: { name: string };
   }>,
   accountReveals: [] as Array<{ id: string; revealedAt: Date; revealedBy: { name: string } }>,
+  supportingNote: null as string | null,
+  revisionReason: null as string | null,
+  revisionRequestedAt: null as Date | null,
+  documents: [] as Array<{ id: string; label: string; contentType: string; sizeBytes: number; uploadedAt: Date }>,
 };
 
 describe('AdminPayoutDetailPage', () => {
@@ -85,6 +89,56 @@ describe('AdminPayoutDetailPage', () => {
     // The approve form is rendered for a DRAFT payout when the viewer is a
     // different Admin than the requester.
     expect(screen.getByLabelText(/^penyedia pembayaran$/i)).toBeDefined();
+  });
+
+  it("shows the Fundraiser's note and supporting papers as links through the ACL route, never a storage path (PKS Pasal 4.5)", async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      supportingNote: 'RAB terlampir',
+      documents: [{ id: 'doc-1', label: 'Nota pembelian', contentType: 'application/pdf', sizeBytes: 10, uploadedAt: new Date('2026-09-21T00:00:00.000Z') }],
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' } as never);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText('RAB terlampir')).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Nota pembelian' }).getAttribute('href')).toBe('/api/documents/doc-1');
+    expect(prisma.payout.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          documents: expect.objectContaining({ select: expect.not.objectContaining({ storagePath: true }) }),
+        }),
+      }),
+    );
+  });
+
+  it('offers "Minta revisi" on a DRAFT Payout to a different Admin', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue(DRAFT_PAYOUT as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' } as never);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByRole('button', { name: 'Minta revisi' })).toBeDefined();
+  });
+
+  it('says a REVISION_REQUESTED Payout waits for the Fundraiser, with the reason, and offers no approval', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { id: 'admin-2', assignments: ['ADMIN'] } } as never);
+    vi.mocked(prisma.payout.findUnique).mockResolvedValue({
+      ...DRAFT_PAYOUT,
+      status: 'REVISION_REQUESTED',
+      revisionReason: 'Lampirkan RAB yang terbaru',
+      revisionRequestedAt: new Date('2026-09-22T00:00:00.000Z'),
+    } as never);
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ id: 'campaign-1', slug: 'sumur-desa', title: 'Sumur untuk Desa' } as never);
+
+    render(await AdminPayoutDetailPage({ params: Promise.resolve({ id: 'payout-1' }) }));
+
+    expect(screen.getByText(/Lampirkan RAB yang terbaru/)).toBeDefined();
+    expect(screen.getByText(/Dana belum bergerak/)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /setujui pencairan/i })).toBeNull();
+    expect(screen.queryByLabelText(/^penyedia pembayaran$/i)).toBeNull();
   });
 
   it('never selects the Bank Account number into the page payload (ticket 89: it is opened only by the explicit reveal action)', async () => {

@@ -200,3 +200,38 @@ describe('assertProductionEnv in the public beta (ticket rilis-1-benda/94)', () 
     expect(() => assertProductionEnv()).not.toThrow();
   });
 });
+
+describe('assertProductionEnv: the two Sumopod merchants must not share a webhook secret (ADR 0027)', () => {
+  const warn = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const noMerchantSecrets = {
+    SUMOPOD_WEBHOOK_SECRET: '',
+    SUMOPOD_YAYASAN_WEBHOOK_SECRET: '',
+    SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET: '',
+  };
+
+  it('logs sumopod_merchant_secrets_equal, without the secret, and still boots, when both merchants have the same secret', () => {
+    const spy = warn();
+    env({ ...noMerchantSecrets, SUMOPOD_WEBHOOK_SECRET: 'shared-secret-xyz', SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET: 'shared-secret-xyz' });
+    expect(() => assertProductionEnv()).not.toThrow();
+    const logged = spy.mock.calls.flat().join(' ');
+    expect(logged).toContain('sumopod_merchant_secrets_equal');
+    expect(logged).not.toContain('shared-secret-xyz');
+    spy.mockRestore();
+  });
+
+  it('is silent when the merchants have different secrets', () => {
+    const spy = warn();
+    env({ ...noMerchantSecrets, SUMOPOD_YAYASAN_WEBHOOK_SECRET: 'secret-a', SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET: 'secret-b' });
+    assertProductionEnv();
+    expect(spy.mock.calls.flat().join(' ')).not.toContain('sumopod_merchant_secrets_equal');
+    spy.mockRestore();
+  });
+
+  it('is silent when BADAN_USAHA has no secret (it has no fallback, so nothing is shared)', () => {
+    const spy = warn();
+    env({ ...noMerchantSecrets, SUMOPOD_WEBHOOK_SECRET: 'secret-a' });
+    assertProductionEnv();
+    expect(spy.mock.calls.flat().join(' ')).not.toContain('sumopod_merchant_secrets_equal');
+    spy.mockRestore();
+  });
+});

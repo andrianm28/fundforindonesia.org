@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import type { LedgerAccount, LedgerDirection, Prisma } from '@/generated/prisma/client';
 import { isPrismaUniqueConstraintViolation } from '@/lib/prisma-errors';
+import { MERCHANT_ENTITIES, type MerchantEntity } from '@/lib/payments/merchant';
 
 /**
  * Double-entry ledger.
@@ -29,6 +30,22 @@ export interface LedgerLeg {
 }
 
 export interface PostOptions {
+  /**
+   * Which Merchant Account's money every leg of this transaction is (ADR 0027).
+   * REQUIRED, with no default anywhere: the column has none either, so a posting
+   * that forgot to say would otherwise be silently booked to the yayasan.
+   * Derived from the source row (a Payment's own merchantEntity) or from
+   * merchantEntityForPurpose; a scan test pins that every call site names it.
+   */
+  merchantEntity: MerchantEntity;
+  /**
+   * The Partner Organisation that collects the money this movement is about
+   * (the Campaign's Collecting Entity at settlement, the receiver of a sweep).
+   * Omitted where nobody records one; null is a real answer.
+   */
+  collectingEntityId?: string | null;
+  /** The user who caused the movement, where a person did (PKS 4.3). */
+  actorId?: string | null;
   paymentId?: string;
   refundId?: string;
   payoutId?: string;
@@ -327,8 +344,16 @@ function assertBalanced(legs: LedgerLeg[]): void {
 export async function postTransaction(
   tx: Prisma.TransactionClient,
   legs: LedgerLeg[],
-  options: PostOptions = {},
+  options: PostOptions,
 ): Promise<string> {
+  // Checked at runtime as well as by the type: this is the money path, and a
+  // posting without an entity is refused here, before any row is written, rather
+  // than left for the database's NOT NULL to abort the transaction later.
+  if (!(MERCHANT_ENTITIES as readonly string[]).includes(options.merchantEntity as string)) {
+    throw new InvalidLedgerLegError(
+      `A ledger posting must name its merchantEntity (one of ${MERCHANT_ENTITIES.join(', ')}); got ${JSON.stringify(options.merchantEntity)}.`,
+    );
+  }
   assertLegsValid(legs);
   assertBalanced(legs);
 
@@ -351,6 +376,9 @@ export async function postTransaction(
         campaignTransferId: options.campaignTransferId ?? null,
         providerWithdrawalId: options.providerWithdrawalId ?? null,
         provider: options.provider ?? null,
+        merchantEntity: options.merchantEntity,
+        collectingEntityId: options.collectingEntityId ?? null,
+        actorId: options.actorId ?? null,
         sandbox: options.sandbox ?? false,
         transactionId,
         // 0 claims the transactionId; the rest are ordinary legs. The index
@@ -565,8 +593,13 @@ export async function programBalance(
 export async function collectionAccountBalance(
   tx: Prisma.TransactionClient,
   sandbox = false,
+  merchantEntity?: MerchantEntity,
 ): Promise<number> {
-  return accountTotal(tx, { account: 'COLLECTION_ACCOUNT', sandbox }, 'debit');
+  return accountTotal(
+    tx,
+    { account: 'COLLECTION_ACCOUNT', sandbox, ...(merchantEntity ? { merchantEntity } : {}) },
+    'debit',
+  );
 }
 
 /**
@@ -1278,10 +1311,15 @@ export interface ProviderBalance {
 export async function providerBalances(
   tx: Prisma.TransactionClient,
   sandbox = false,
+  /**
+   * Read one merchant account's pots only (ADR 0027). Omitted, every entity is
+   * summed, which is what the whole-account invariant of ADR 0011 is stated over.
+   */
+  merchantEntity?: MerchantEntity,
 ): Promise<ProviderBalance[]> {
   const rows = await tx.ledgerEntry.groupBy({
     by: ['provider', 'direction'],
-    where: { account: 'GATEWAY_CLEARING', sandbox },
+    where: { account: 'GATEWAY_CLEARING', sandbox, ...(merchantEntity ? { merchantEntity } : {}) },
     _sum: { amount: true },
   });
 

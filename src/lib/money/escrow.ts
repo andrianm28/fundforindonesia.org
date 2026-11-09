@@ -326,6 +326,9 @@ export async function releaseMaturedEscrow(
       // The mode the release is posted in: the Payment's own stamp, never the
       // marker now in force (ticket 94).
       sandbox: true,
+      // Which merchant account's money the release is booked to (ADR 0027): the
+      // Payment's own, never a default.
+      merchantEntity: true,
       donationId: true,
       registrationId: true,
       donation: { select: { campaignId: true } },
@@ -504,7 +507,7 @@ export async function releaseMaturedEscrow(
           await postTransaction(
             tx,
             escrowReleaseLegs({ subject: paymentSubject, amount: amountToRelease }),
-            { paymentId: payment.id, sandbox: sandboxModeOf(payment), transactionId: `escrow-release:${payment.id}` },
+            { paymentId: payment.id, sandbox: sandboxModeOf(payment), transactionId: `escrow-release:${payment.id}`, merchantEntity: payment.merchantEntity },
           );
         }
         // amountToRelease <= 0 means a COMPLETED refund already took all of

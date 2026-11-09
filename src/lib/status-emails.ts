@@ -63,10 +63,17 @@ function tripFeeRefundTierOf(refundAmount: number, paidAmount: number): 'FULL' |
   return refundAmount >= paidAmount ? 'FULL' : 'HALF';
 }
 
-/** Tells the Fundraiser who requested a Payout that it was approved, or that the money was sent. */
+/**
+ * Tells the Fundraiser who requested a Payout that it was approved, that the
+ * money was sent, or that an Admin sent it back for revision with a reason.
+ */
 export async function emailPayoutStatus(
   prisma: PrismaClient,
-  params: { payoutId: string } & ({ event: 'approved' } | { event: 'completed'; proofReference: string }),
+  params: { payoutId: string } & (
+    | { event: 'approved' }
+    | { event: 'completed'; proofReference: string }
+    | { event: 'revision_requested'; reason: string }
+  ),
   mailer?: Mailer,
 ): Promise<void> {
   const report = { mail: `payout_${params.event}`, payoutId: params.payoutId };
@@ -114,7 +121,9 @@ export async function emailPayoutStatus(
         statusUrl: subject.url,
         ...(params.event === 'approved'
           ? { event: 'approved' as const }
-          : { event: 'completed' as const, proofReference: params.proofReference }),
+          : params.event === 'revision_requested'
+            ? { event: 'revision_requested' as const, reason: params.reason }
+            : { event: 'completed' as const, proofReference: params.proofReference }),
       });
     },
     mailer,

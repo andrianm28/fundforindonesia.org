@@ -133,6 +133,27 @@ describe('GET /api/campaigns/[slug]', () => {
     expect(body.campaign.donationCount).toBe(342);
   });
 
+  it('shows the gallery publicly but none of the verification-only fields (PKS pasal 3.3, 3.4)', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1', slug: 'galeri', title: 'Galeri', description: 'd', story: 's',
+      coverImage: '/uploads/a-b.jpg',
+      galleryImages: ['/uploads/c-d.jpg', '/uploads/e-f.png'],
+      rejectionFinal: true,
+      beneficiaryRelationship: 'Keluarga',
+      targetAmount: 1000, collectedAmount: 0, category: 'x', kind: 'DONATION',
+      lifecycleStatus: 'ACTIVE', isUrgent: false, isDemo: false, deadline: null, creatorId: 'user-1',
+      createdAt: new Date(), updatedAt: new Date(),
+      creator: { id: 'user-1', name: 'Y', avatar: null }, _count: { donations: 0 },
+    } as never);
+
+    const response = await GET(createRequest('galeri'), { params: Promise.resolve({ slug: 'galeri' }) });
+    const { campaign } = await response.json();
+
+    expect(campaign.galleryImages).toEqual(['/uploads/c-d.jpg', '/uploads/e-f.png']);
+    expect(campaign).not.toHaveProperty('rejectionFinal');
+    expect(campaign).not.toHaveProperty('beneficiaryRelationship');
+  });
+
   it('carries the Platform Fee rate in force, resolved server-side (prd-compliance 17)', async () => {
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
@@ -841,6 +862,49 @@ describe('PATCH /api/campaigns/[slug]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  describe('the gallery (PKS pasal 3.3)', () => {
+    const upload = (n: number) => `/uploads/lx${n}-abc${n}.jpg`;
+    const owner = {
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
+      expires: '2099-01-01',
+    };
+
+    beforeEach(() => {
+      mockGetServerSession.mockResolvedValue(owner as never);
+      mockFindUnique.mockResolvedValue({
+        id: 'campaign-1',
+        creatorId: 'creator-user', lifecycleStatus: 'DRAFT', deadline: null,
+      } as never);
+      mockUpdate.mockResolvedValue({ id: 'campaign-1', creator: { id: 'creator-user', name: 'C', avatar: null } } as never);
+    });
+
+    it('replaces the gallery with up to six images', async () => {
+      const response = await PATCH(createRequest('my-campaign', 'PATCH', { galleryImages: [1, 2, 3, 4, 5, 6].map(upload) }), {
+        params: Promise.resolve({ slug: 'my-campaign' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate.mock.calls[0][0].data.galleryImages).toEqual([1, 2, 3, 4, 5, 6].map(upload));
+    });
+
+    it('clears it with an empty list', async () => {
+      await PATCH(createRequest('my-campaign', 'PATCH', { galleryImages: [] }), {
+        params: Promise.resolve({ slug: 'my-campaign' }),
+      });
+
+      expect(mockUpdate.mock.calls[0][0].data.galleryImages).toEqual([]);
+    });
+
+    it('refuses a seventh image with 400 and writes nothing', async () => {
+      const response = await PATCH(createRequest('my-campaign', 'PATCH', { galleryImages: [1, 2, 3, 4, 5, 6, 7].map(upload) }), {
+        params: Promise.resolve({ slug: 'my-campaign' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns 403 for CAMPAIGN_CREATOR who is NOT the owner', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
@@ -1044,7 +1108,7 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 
   // The one stored Campaign row; both the slug lookup and the read under
   // the lock see it as it stands at the time of the call.
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1061,8 +1125,8 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
     vi.useRealTimers();
   });
 
-  function storedAs(lifecycleStatus: string, deadline: Date | null = null, kind = 'DONATION') {
-    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind };
+  function storedAs(lifecycleStatus: string, deadline: Date | null = null, kind = 'DONATION', rejectionFinal = false) {
+    row = { id: 'campaign-1', slug: 'bantu-korban-banjir', creatorId: owner.id, lifecycleStatus, deadline, kind, rejectionFinal };
   }
 
   function editTitle() {
@@ -1084,6 +1148,28 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 
     expect(response.status).toBe(200);
     expect((await response.json()).campaign.title).toBe('Judul Baru');
+  });
+
+  it('refuses to edit a Campaign the Verifier rejected for good, with 409 and an Indonesian message', async () => {
+    storedAs('REJECTED', null, 'DONATION', true);
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'REJECTED_FINAL',
+      error: 'Campaign ini ditolak secara final oleh Verifier dan tidak dapat diubah lagi.',
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the gallery unchanged when the body does not name galleryImages', async () => {
+    storedAs('DRAFT');
+
+    const response = await editTitle();
+
+    expect(response.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data).not.toHaveProperty('galleryImages');
   });
 
   it('lets the Fundraiser edit the story of an Active Campaign whose deadline is still ahead', async () => {
@@ -1181,7 +1267,7 @@ describe('PATCH /api/campaigns/[slug] -- content edits follow the Campaign statu
 describe('PATCH /api/campaigns/[slug] -- title and description are frozen once Active (verification-request 09)', () => {
   const NOW = new Date('2026-09-26T12:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1262,7 +1348,7 @@ describe('PATCH /api/campaigns/[slug] -- Kind is fixed once the Campaign leaves 
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1372,7 +1458,7 @@ describe('PATCH /api/campaigns/[slug] -- an individual Fundraiser may only run d
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1432,7 +1518,7 @@ describe('PATCH /api/campaigns/[slug] -- the deadline is set before a Verifier s
   const NOW = new Date('2026-09-26T12:00:00Z');
   const DEADLINE = new Date('2026-12-31T00:00:00Z');
   const owner = { id: 'owner-1', name: 'Pemilik', email: 'owner@test.com' };
-  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string };
+  let row: { id: string; slug: string; creatorId: string; lifecycleStatus: string; deadline: Date | null; kind: string; rejectionFinal?: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1645,6 +1731,15 @@ describe('PATCH /api/campaigns/[slug] -- location and beneficiaries (ticket 74)'
     });
   });
 
+  it('saves and clears the relationship with the beneficiary of a Draft (PKS 3.2)', async () => {
+    await patch({ beneficiaryRelationship: ' Wali murid ' });
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ beneficiaryRelationship: 'Wali murid' });
+
+    mockUpdate.mockClear();
+    await patch({ beneficiaryRelationship: '' });
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ beneficiaryRelationship: null });
+  });
+
   it('clears a value sent as null or blank', async () => {
     const response = await patch({ province: '', regency: null, beneficiaryCount: null });
 
@@ -1656,7 +1751,7 @@ describe('PATCH /api/campaigns/[slug] -- location and beneficiaries (ticket 74)'
     await patch({ story: 'Cerita baru' });
 
     const data = mockUpdate.mock.calls[0][0].data;
-    for (const key of ['province', 'regency', 'beneficiaryDescription', 'beneficiaryCount']) {
+    for (const key of ['province', 'regency', 'beneficiaryDescription', 'beneficiaryCount', 'beneficiaryRelationship']) {
       expect(data).not.toHaveProperty(key);
     }
   });

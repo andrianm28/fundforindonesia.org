@@ -21,6 +21,8 @@ export type ReceiptEmailInput = {
   printUrl: string;
   /** Beta Receipt (ticket rilis-1-benda/92): says up front that no real money moved. */
   betaSandbox?: boolean;
+  /** A payment of zakat (ADR 0028): the same email, labelled as a zakat payment. */
+  zakat?: boolean;
 };
 
 /** The same wording as the Receipt page's banner (BETA_BANNER_COPY.receipt), kept in this server-only file so the email does not import a component. */
@@ -71,13 +73,19 @@ export function resolveReceiptRecipient(input: {
 }
 
 export function receiptEmail(input: ReceiptEmailInput): MailMessage {
-  const subject = `Bukti Donasi untuk "${input.campaignTitle}"`;
+  const subject = input.zakat
+    ? `Bukti Pembayaran Zakat untuk "${input.campaignTitle}"`
+    : `Bukti Donasi untuk "${input.campaignTitle}"`;
   const greeting = input.donorName ? `Halo ${input.donorName},` : 'Halo,';
   const body = [
     ...(input.betaSandbox ? [BETA_NOTICE] : []),
-    `Terima kasih atas donasi Anda sebesar ${formatRupiah(input.amount)} pada ${formatIndonesianDate(input.paidAt)} untuk Campaign "${input.campaignTitle}".`,
+    input.zakat
+      ? `Terima kasih atas pembayaran zakat Anda sebesar ${formatRupiah(input.amount)} pada ${formatIndonesianDate(input.paidAt)} melalui Campaign "${input.campaignTitle}".`
+      : `Terima kasih atas donasi Anda sebesar ${formatRupiah(input.amount)} pada ${formatIndonesianDate(input.paidAt)} untuk Campaign "${input.campaignTitle}".`,
     `Dana ini diterima oleh ${input.collectingEntityName}.`,
-    'Bukti donasi ini dapat dibuka dan dicetak kembali kapan saja lewat tautan berikut:',
+    input.zakat
+      ? 'Bukti pembayaran zakat ini dapat dibuka dan dicetak kembali kapan saja lewat tautan berikut:'
+      : 'Bukti donasi ini dapat dibuka dan dicetak kembali kapan saja lewat tautan berikut:',
   ];
   const closing = 'Salam,\nTim Fund for Indonesia';
 

@@ -62,6 +62,22 @@ describe('CampaignDetailView', () => {
     expect(screen.getByLabelText('Bagikan via WhatsApp')).toBeDefined();
   });
 
+  it('names who collects the money and links to its public profile (PKS Pasal 12(5))', () => {
+    render(
+      <CampaignDetailView
+        campaign={{ ...mockCampaign, collectingEntity: { id: 'org-1', name: 'Yayasan Indonesia Emas Merdeka' } }}
+      />,
+    );
+    const link = screen.getByRole('link', { name: 'Yayasan Indonesia Emas Merdeka' });
+    expect(link.getAttribute('href')).toBe('/lembaga/org-1');
+    expect(screen.getByText(/Dihimpun oleh/)).toBeDefined();
+  });
+
+  it('shows no "Dihimpun oleh" line when the campaign has no Collecting Entity', () => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, collectingEntity: null }} />);
+    expect(screen.queryByText(/Dihimpun oleh/)).toBeNull();
+  });
+
   it('does not render a demo badge for a regular campaign', () => {
     render(<CampaignDetailView campaign={mockCampaign} />);
     expect(screen.queryByText(/kampanye contoh/i)).toBeNull();
@@ -81,6 +97,40 @@ describe('CampaignDetailView', () => {
     const demoCampaign = { ...mockCampaign, isDemo: true };
     render(<CampaignDetailView campaign={demoCampaign} />);
     expect(screen.getByText('Donasi sekarang')).toBeDefined();
+  });
+
+  describe('"Donasi rutin" link (PKS 4.7)', () => {
+    const signedIn = { data: { user: { id: 'donor-9', assignments: [] as string[] } } };
+    const asVisitor = () => {
+      mockSession.value = { data: null };
+    };
+    afterEach(() => {
+      mockSession.value = { data: { user: { id: 'user-1', assignments: [] as string[] } } };
+    });
+
+    it('leads a signed-in Donor to the registration page for this Campaign', () => {
+      mockSession.value = signedIn;
+      render(<CampaignDetailView campaign={{ ...mockCampaign, kind: 'DONATION' }} />);
+      expect(screen.getByRole('link', { name: 'Donasi rutin' }).getAttribute('href')).toBe(
+        '/akun/donasi-rutin?campaign=campaign-1',
+      );
+    });
+
+    it('is not offered to a visitor who is not signed in', () => {
+      asVisitor();
+      render(<CampaignDetailView campaign={{ ...mockCampaign, kind: 'DONATION' }} />);
+      expect(screen.queryByRole('link', { name: 'Donasi rutin' })).toBeNull();
+    });
+
+    it.each([
+      ['a wakaf Campaign', { kind: 'WAKAF' as const }],
+      ['a Campaign that no longer takes donations', { lifecycleStatus: 'EXPIRED' as const }],
+      ['a demo Campaign', { isDemo: true }],
+    ])('is not offered on %s', (_name, patch) => {
+      mockSession.value = signedIn;
+      render(<CampaignDetailView campaign={{ ...mockCampaign, kind: 'DONATION', ...patch }} />);
+      expect(screen.queryByRole('link', { name: 'Donasi rutin' })).toBeNull();
+    });
   });
 
   it('shows one "Donasi uji" line when the beta hands an amount, and none otherwise', () => {
@@ -715,5 +765,68 @@ describe('CampaignDetailView -- Kabar Terbaru tab', () => {
   it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('does not offer the tab while %s (not public)', (status) => {
     render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
     expect(screen.queryByRole('button', { name: 'Kabar Terbaru' })).toBeNull();
+  });
+});
+
+describe('CampaignDetailView -- Donatur teratas tab (PKS 3.7b)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ donors: [{ rank: 1, donorName: 'Anonim', amount: 750000 }] }),
+      }),
+    ));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('opens the ranked list when the tab is pressed', async () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Donatur teratas' }));
+    expect(await screen.findByText('Anonim')).toBeDefined();
+  });
+
+  it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('does not offer the tab while %s (not public)', (status) => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
+    expect(screen.queryByRole('button', { name: 'Donatur teratas' })).toBeNull();
+  });
+});
+
+describe('the gallery (PKS pasal 3.3)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('shows the Campaign\'s gallery images under the story', () => {
+    render(
+      <CampaignDetailView campaign={{ ...mockCampaign, galleryImages: ['/uploads/lx1-ab.jpg', 'https://cdn.test/b.png'] }} />,
+    );
+
+    const gallery = screen.getByRole('region', { name: 'Galeri foto' });
+    expect(Array.from(gallery.querySelectorAll('img')).map((img) => img.getAttribute('src'))).toEqual([
+      '/uploads/lx1-ab.jpg',
+      'https://cdn.test/b.png',
+    ]);
+  });
+
+  it('shows no gallery section for a Campaign with none, or without the field', () => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, galleryImages: [] }} />);
+    expect(screen.queryByRole('region', { name: 'Galeri foto' })).toBeNull();
+    cleanup();
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.queryByRole('region', { name: 'Galeri foto' })).toBeNull();
+  });
+
+  it('never renders an entry that is not an upload path or an https URL, even if one reached the row', () => {
+    render(
+      <CampaignDetailView
+        campaign={{ ...mockCampaign, galleryImages: ['javascript:alert(1)', 'http://plain.test/a.jpg', '/uploads/lx2-cd.png'] }}
+      />,
+    );
+
+    const gallery = screen.getByRole('region', { name: 'Galeri foto' });
+    expect(Array.from(gallery.querySelectorAll('img')).map((img) => img.getAttribute('src'))).toEqual(['/uploads/lx2-cd.png']);
   });
 });

@@ -1,5 +1,6 @@
 import { MockMailer } from './mock-mailer';
 import { SmtpMailer } from './smtp-mailer';
+import { recordFailedNotification } from './failed-queue';
 import type { Mailer, MailMessage } from './types';
 
 export { MockMailer } from './mock-mailer';
@@ -96,6 +97,11 @@ export function errorText(error: unknown): string {
  * The recipient's address is left out of the log; the context names them
  * by id.
  *
+ * Each failure is also written to the failed notification queue
+ * (./failed-queue.ts; PKS Pasal 8(2)), where the scheduled jobs retry it with
+ * backoff and an Admin can resend it at /admin/notifikasi-gagal. The queue
+ * holds the message sealed, never in the clear.
+ *
  * `mailer` is the configured one (getMailer) unless a test passes its own.
  * Returns whether the provider accepted the message.
  */
@@ -109,6 +115,7 @@ export async function sendReportingFailure(
     resolved = mailer ?? getMailer();
   } catch (error) {
     console.error(JSON.stringify({ event: 'mail_not_configured', ...report, error: errorText(error) }));
+    await recordFailedNotification(message, report, errorText(error));
     return false;
   }
   try {
@@ -123,6 +130,7 @@ export async function sendReportingFailure(
         error: errorText(error),
       }),
     );
+    await recordFailedNotification(message, report, errorText(error));
     return false;
   }
 }

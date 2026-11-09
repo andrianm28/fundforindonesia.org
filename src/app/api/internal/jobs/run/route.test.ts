@@ -20,6 +20,7 @@ vi.mock('@/lib/prisma', () => ({
     campaign: { findMany: vi.fn() },
     kindAuthorisation: { findMany: vi.fn() },
     company: { findMany: vi.fn().mockResolvedValue([]) },
+    partnershipInquiry: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
     $queryRaw: vi.fn().mockResolvedValue([]),
   },
@@ -29,8 +30,20 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+// The queue phase is tested against a real Postgres (PKS pemenuhan 05); here it
+// is a zero result, so this file stays about the HTTP boundary.
+vi.mock('@/lib/failed-notifications', () => ({
+  runNotificationQueuePhase: vi.fn().mockResolvedValue({ attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [], purgedCount: 0 }),
+}));
+
 vi.mock('@/lib/jobs-heartbeat', () => ({
   recordJobsRun: vi.fn(),
+}));
+
+// Recurring donation billing is tested against a real Postgres
+// (src/__tests__/integration/donasi-rutin-real-db.test.ts); here it is a zero result.
+vi.mock('@/lib/recurring-donations/billing', () => ({
+  runRecurringDonationBilling: vi.fn().mockResolvedValue({ consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 }),
 }));
 
 import { sealUserEmail } from '@/lib/contact-fields';
@@ -74,6 +87,7 @@ function makeDb() {
     status: 'PAID',
     amount: 100_000,
     providerFee: 0,
+    merchantEntity: 'YAYASAN',
     donationId: 'donation-1',
     registrationId: null,
     escrowReleaseAt: new Date(now.getTime() - MS_PER_DAY),
@@ -276,7 +290,9 @@ describe('POST /api/internal/jobs/run -- an authorised run', () => {
         campaignDeadlineReminders: { attemptedCount: 1, consideredCount: 1 },
         kindAuthorisationExpiryWarnings: { attemptedCount: 1, consideredCount: 1 },
         lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
-        companyRetention: { consideredCount: 0, anonymisedCount: 0 },
+        companyRetention: { consideredCount: 0, anonymisedCount: 0, anonymisedInquiryCount: 0 },
+        notificationQueue: { attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [], purgedCount: 0 },
+        recurringDonations: { consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 },
       },
     });
   });
@@ -337,7 +353,9 @@ describe('POST /api/internal/jobs/run -- a repeated call', () => {
         campaignDeadlineReminders: { attemptedCount: 0, consideredCount: 0 },
         kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
         lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
-        companyRetention: { consideredCount: 0, anonymisedCount: 0 },
+        companyRetention: { consideredCount: 0, anonymisedCount: 0, anonymisedInquiryCount: 0 },
+        notificationQueue: { attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [], purgedCount: 0 },
+        recurringDonations: { consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 },
       },
     });
     expect((await third.json()).result.escrowRelease.releasedCount).toBe(0);

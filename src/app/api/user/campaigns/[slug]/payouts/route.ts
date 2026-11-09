@@ -95,6 +95,14 @@ export async function GET(_request: Request, context: RouteContext) {
           amount: true,
           description: true,
           status: true,
+          // PKS Pasal 4.5: what the Fundraiser wrote, why an Admin sent it back
+          // (shown while REVISION_REQUESTED), and the papers attached so far.
+          supportingNote: true,
+          revisionReason: true,
+          documents: {
+            select: { id: true, label: true, contentType: true, sizeBytes: true, uploadedAt: true },
+            orderBy: { uploadedAt: 'asc' },
+          },
           createdAt: true,
           approvedAt: true,
           completedAt: true,

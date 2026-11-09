@@ -27,7 +27,6 @@ export interface UserWithRelations extends User {
   donations: import("./donation").Donation[];
   prayers: import("./donation").Prayer[];
   notifications: import("./notification").Notification[];
-  autoDonations: import("./notification").AutoDonation[];
   accounts: Account[];
 }
 

@@ -119,8 +119,8 @@ describe.skipIf(!DATABASE_URL)('failPayout two-person rule -- against real Postg
       await ledger.postTransaction(tx, [
         { account: 'GATEWAY_CLEARING', direction: 'DEBIT', amount: 500_000 },
         { account: 'CAMPAIGN_BALANCE', direction: 'CREDIT', amount: 500_000, campaignId },
-      ]);
-      await ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: 500_000 }), {
+      ], { merchantEntity: 'YAYASAN' });
+      await ledger.postTransaction(tx, ledger.payoutInstructedLegs({ subject: { type: 'campaign', campaignId }, amount: 500_000 }), { merchantEntity: 'YAYASAN',
         payoutId: payout.id,
         transactionId: `payout-instructed-${payout.id}`,
       });

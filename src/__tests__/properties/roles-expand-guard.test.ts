@@ -79,6 +79,17 @@ import { join } from "node:path";
  * a queue of companies and the people at them is nobody else's to read, and
  * growing this list by two.
  *
+ * NOTE (pks-pemenuhan/17): the CSR pipeline adds no route file to this list. It
+ * widens the two entries above: `GET /api/admin/partnership-inquiries` now also
+ * answers the Admin users who may be named PIC, `PATCH .../[id]` takes
+ * `{ status, picId, note }` (any of the eight stages; a PIC must hold ADMIN), and
+ * `GET .../[id]` is the Admin-only detail that reads the sealed contact, address
+ * and NPWP back. All three sit behind the same ADMIN gate, and a signed-in person
+ * without it gets the literal 404 (never 403). `POST /api/partnership-inquiries`
+ * (public) and `POST /api/csr/inquiries` (verified Tim CSR member) stay outside
+ * this list on purpose: they hold no assignment, take a proposal PDF as
+ * multipart, and the public one keeps its rate limits and honeypot.
+ *
  * NOTE (prd-compliance 34): the two Manual Contribution routes ask for the
  * ADMIN assignment too. Recording money that arrived outside the gateway and
  * deciding it are both in the Admin's remit in CONTEXT.md and neither in the
@@ -158,6 +169,12 @@ import { join } from "node:path";
  * all through withHiddenAssignmentCheck on the ADMIN assignment -- growing this
  * list by two.
  *
+ * NOTE (PKS pemenuhan 15): `GET`/`PUT /api/admin/kurasi` are the Admin's
+ * curation of the home page (Pilihan, Unggulan kategori, Sorotan doa), both
+ * through withHiddenAssignmentCheck on the ADMIN assignment alone -- growing
+ * this list by one (the route file). The screen /admin/kurasi sits behind
+ * the ADMIN-only admin layout and names no assignment itself.
+ *
  * NOTE (ticket 67): `src/app/admin/scrutiny/page.tsx`, the Admin screen over the
  * markers GET /api/admin/scrutiny lists, asks for the ADMIN assignment itself
  * and answers 404 to anyone else, the way `src/app/admin/page.tsx` asks for it
@@ -171,12 +188,41 @@ import { join } from "node:path";
  * NOTE (ticket 79): `GET /api/admin/finance/recap` serves the finance recap
  * CSV through withHiddenAssignmentCheck on the ADMIN assignment -- read-only,
  * growing this list by one.
+ *
+ * NOTE (PKS pemenuhan 05): `POST /api/admin/failed-notifications/[id]/resend`
+ * (an Admin sends a queued email again) and
+ * `POST /api/admin/webhook-events/[id]/resolve` (an Admin closes a reviewed
+ * webhook event with a note), both through withHiddenAssignmentCheck on the
+ * ADMIN assignment, so anyone else gets the literal 404 -- growing this list by
+ * two. The page /admin/notifikasi-gagal asks for the ADMIN assignment itself and
+ * answers 404 to anyone else (as scrutiny does), so it joins the list too.
+ * `src/lib/failed-notifications.ts` joins as a non-route: it reads the
+ * ADMIN assignment only to learn WHO to email when notifications pile up
+ * (prisma.userAssignment), and decides no one's access.
+ *
+ * NOTE (PKS pemenuhan 10): `GET /api/moderasi/prayers` and
+ * `PATCH /api/moderasi/prayers/[id]` (Prayer moderation, Pasal 3.7c) are for a
+ * Verifier OR an Admin, each on its own assignment, never a rank. They go
+ * through `prayerModerationRoute` (src/lib/prayer-moderation-route.ts), which
+ * is `withHiddenAnyAssignmentCheck`: 401 signed out, the literal 404 for anyone
+ * holding neither. That one file names both assignments, so it joins the list
+ * below as a non-route; the two routes and the two pages
+ * (/moderasi/doa, /admin/doa, behind their own layouts and the shared
+ * PrayerModerationScreen) only ask it, and name no assignment themselves.
+ *
+ * NOTE (PKS pemenuhan 19): `GET /api/admin/zakat/transaksi` (zakat transactions
+ * CSV) and `GET`/`POST /api/admin/zakat/distributions` (distribution records)
+ * go through `zakatAdminRoute` (src/lib/zakat-route.ts): a literal 404 for
+ * everyone while the module is off, then `withHiddenAssignmentCheck` on ADMIN.
+ * That one file names the assignment, so it joins the list as a non-route; the
+ * routes and the page /admin/zakat (behind the Admin layout) name none.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/admin/layout.tsx",
   "src/app/admin/page.tsx",
   "src/app/admin/scrutiny/page.tsx",
+  "src/app/admin/notifikasi-gagal/page.tsx",
   "src/app/api/admin/abuse-thresholds/route.ts",
   "src/app/api/admin/assignment-grant-requests/[requestId]/decision/route.ts",
   "src/app/api/admin/assignment-grant-requests/route.ts",
@@ -188,6 +234,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/refunds/late-settlements/route.ts",
   "src/app/api/admin/duplicate-similarity/route.ts",
   "src/app/api/admin/escrow-hold/route.ts",
+  "src/app/api/admin/kurasi/route.ts",
   "src/app/api/admin/manual-contributions/[id]/decision/route.ts",
   "src/app/api/admin/manual-contributions/route.ts",
   "src/app/api/admin/partnership-inquiries/[id]/route.ts",
@@ -196,17 +243,21 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/payouts/[id]/balance-check/route.ts",
   "src/app/api/admin/payouts/[id]/fail/route.ts",
   "src/app/api/admin/payouts/[id]/reject/route.ts",
+  "src/app/api/admin/payouts/[id]/request-revision/route.ts",
   "src/app/api/admin/payouts/[id]/reveal-account/route.ts",
   "src/app/api/admin/platform-fee/route.ts",
   "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/scrutiny/route.ts",
+  "src/app/api/admin/operations/route.ts",
   "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
   "src/app/api/admin/programs/[id]/route.ts",
   "src/app/api/admin/programs/route.ts",
   "src/app/api/admin/finance/recap/route.ts",
+  "src/app/api/admin/failed-notifications/[id]/resend/route.ts",
+  "src/app/api/admin/webhook-events/[id]/resolve/route.ts",
   // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
   // Trip suspension module, which still decides who may suspend or lift.
   "src/app/api/admin/volunteer-trips/[id]/suspension/route.ts",
@@ -240,6 +291,15 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/moderasi/rekening/page.tsx",
   "src/app/moderasi/volunteer-trips/[id]/page.tsx",
   "src/app/moderasi/volunteer-trips/page.tsx",
+  // Not a route: the failed notification queue (PKS pemenuhan 05) reads who holds
+  // ADMIN to know whom to email about a pile-up; it grants and refuses nothing.
+  // Its Admin routes have already required ADMIN.
+  "src/lib/failed-notifications.ts",
+  // Not a route: the Prayer moderators (PKS pemenuhan 10): a Verifier OR an
+  // Admin, which no single-assignment wrapper can express. It wraps the two
+  // /api/moderasi/prayers routes in withHiddenAnyAssignmentCheck (404 for
+  // anyone with neither) and answers the same question for the screen.
+  "src/lib/prayer-moderation-route.ts",
   // Not a route: the Capacity judgement, which the lifecycle module, the
   // money operations and Trip moderation ask, because "owner or Admin" and
   // "never Admin on your own Campaign or Trip" are not single-assignment
@@ -269,6 +329,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // uploader, the Campaign's Fundraiser, a Verifier handling it, an Admin --
   // which no single-assignment route wrapper can express.
   "src/lib/documents.ts",
+  // Not a route: zakatAdminRoute (PKS pemenuhan 19) wraps the two Admin zakat
+  // APIs (src/app/api/admin/zakat/**) in withHiddenAssignmentCheck on ADMIN,
+  // behind a 404 for everyone while the zakat module is off.
+  "src/lib/zakat-route.ts",
 ];
 
 /** Every route that changes a Campaign's lifecycle through the lifecycle module. */
@@ -418,7 +482,7 @@ describe("roles expand scope", () => {
   it("every Admin and Moderasi API route answers a missing assignment with 404 (ticket 90)", () => {
     // Directly, or through the register's and checklist editor's wrappers,
     // which are themselves withHiddenAssignmentCheck.
-    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(/;
+    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(|\bprayerModerationRoute\(|\bzakatAdminRoute\(/;
     const routes = [...walk("src/app/api/admin"), ...walk("src/app/api/moderasi")].filter((file) =>
       file.endsWith("/route.ts")
     );
@@ -426,7 +490,11 @@ describe("roles expand scope", () => {
     // escrow-hold (ticket 90 itself) and site-settings (#249) answer 404 to
     // the signed-out as well, by their own check, so not even the 401 reveals
     // the setting.
-    const OWN_404 = ["src/app/api/admin/escrow-hold/route.ts", "src/app/api/admin/site-settings/route.ts"];
+    const OWN_404 = [
+      "src/app/api/admin/escrow-hold/route.ts",
+      "src/app/api/admin/operations/route.ts",
+      "src/app/api/admin/site-settings/route.ts",
+    ];
     const offenders = routes
       .filter((file) => !OWN_404.includes(file))
       .filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
@@ -438,6 +506,15 @@ describe("roles expand scope", () => {
     for (const wrapper of ["src/lib/partner-organisation-route.ts", "src/lib/verification-checklist-route.ts"]) {
       expect(readFileSync(wrapper, "utf8")).toMatch(/\bwithHiddenAssignmentCheck\(/);
     }
+    // Prayer moderation accepts either of two assignments, so its wrapper is
+    // the "any of" variant, with both named.
+    const prayers = readFileSync("src/lib/prayer-moderation-route.ts", "utf8");
+    expect(prayers).toMatch(/\bwithHiddenAnyAssignmentCheck\(/);
+    expect(prayers).toContain("Assignment.VERIFIER");
+    expect(prayers).toContain("Assignment.ADMIN");
+    // The zakat wrapper is the same hidden ADMIN check, behind the module's switch.
+    const zakat = readFileSync("src/lib/zakat-route.ts", "utf8");
+    expect(zakat).toMatch(/\bwithHiddenAssignmentCheck\(Assignment\.ADMIN/);
   });
 
   it("the assignment model references ADR 0005", () => {

@@ -1,5 +1,10 @@
 import type { PrismaClient } from '@/generated/prisma/client';
 import { PaymentStatus } from '@/generated/prisma/client';
+import {
+  WebhookEventNotFoundError,
+  WebhookEventNotOpenError,
+  WebhookResolutionInvalidError,
+} from './errors';
 
 /**
  * Ticket 52: money that reached the payment provider must never be silently
@@ -129,14 +134,14 @@ export async function recordChargeWriteFailure(
 /**
  * The Admin's work list for money that may sit at a provider with no booking
  * (ticket 63): webhook events whose outcome is in WEBHOOK_OUTCOMES_NEEDING_REVIEW
- * and unresolved ChargeWriteFailure rows, oldest first. Read-only, and the
+ * and not yet closed by an Admin (resolveWebhookEvent), and unresolved ChargeWriteFailure rows, oldest first. Read-only, and the
  * webhook payload is left out on purpose: it can carry a Donor's details, and the
  * provider, outcome and event id are what an Admin matches in the dashboard.
  */
 export async function listReconciliationQueue(db: Pick<PrismaClient, 'webhookEvent' | 'chargeWriteFailure'>) {
   const [webhookEvents, chargeWriteFailures] = await Promise.all([
     db.webhookEvent.findMany({
-      where: { outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] } },
+      where: { outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] }, resolvedAt: null },
       orderBy: { receivedAt: 'asc' },
       select: { id: true, provider: true, providerEventId: true, outcome: true, receivedAt: true, processedAt: true },
     }),
@@ -157,3 +162,38 @@ export async function listReconciliationQueue(db: Pick<PrismaClient, 'webhookEve
 }
 
 export type ReconciliationQueue = Awaited<ReturnType<typeof listReconciliationQueue>>;
+
+const MAX_RESOLUTION_NOTE_LENGTH = 1000;
+
+/**
+ * An Admin's "tandai selesai" on a webhook event in the review queue (PKS
+ * pemenuhan 05; until now `resolvedAt` was set in SQL by the owner). Records
+ * who closed it, when, and the note saying what was done at the provider. The
+ * outcome is not touched: it stays what the handler decided, and the closing is
+ * a separate fact beside it.
+ *
+ * The note is required: closing an item that may hold money at the provider
+ * with no words is how it gets forgotten. The write is one guarded UPDATE
+ * (outcome needs review AND not yet closed), so two Admins pressing it at once
+ * close it once and the second is told it is already closed. Closing moves no
+ * money and posts nothing to the ledger.
+ */
+export async function resolveWebhookEvent(
+  db: Pick<PrismaClient, 'webhookEvent'>,
+  params: { eventId: string; actorId: string; note: string; now?: Date },
+): Promise<void> {
+  const note = typeof params.note === 'string' ? params.note.trim() : '';
+  if (note === '') {
+    throw new WebhookResolutionInvalidError('Catatan wajib diisi: tulis apa yang sudah dilakukan di dashboard penyedia.');
+  }
+  if (note.length > MAX_RESOLUTION_NOTE_LENGTH) {
+    throw new WebhookResolutionInvalidError(`Catatan paling banyak ${MAX_RESOLUTION_NOTE_LENGTH} karakter.`);
+  }
+  const closed = await db.webhookEvent.updateMany({
+    where: { id: params.eventId, outcome: { in: [...WEBHOOK_OUTCOMES_NEEDING_REVIEW] }, resolvedAt: null },
+    data: { resolvedAt: params.now ?? new Date(), resolvedById: params.actorId, resolutionNote: note },
+  });
+  if (closed.count === 1) return;
+  const exists = await db.webhookEvent.findUnique({ where: { id: params.eventId }, select: { id: true } });
+  throw exists ? new WebhookEventNotOpenError(params.eventId) : new WebhookEventNotFoundError(params.eventId);
+}

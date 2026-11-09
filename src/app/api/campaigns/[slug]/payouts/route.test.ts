@@ -309,6 +309,7 @@ describe('POST /api/campaigns/[slug]/payouts', () => {
         id: 'payment-1',
         amount: 100_000,
         providerFee: 0,
+        merchantEntity: 'YAYASAN',
         donationId: 'donation-1',
         registrationId: null,
         donation: { campaignId: 'campaign-1' },

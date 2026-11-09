@@ -189,11 +189,21 @@ describe("docker-compose.prod.yml env passthrough", () => {
   const DYNAMIC_READERS: Record<string, string[]> = {
     // requireEnv(key) with literal callers, plus PARTNERSHIP_TEAM_EMAIL_ENV.
     "src/lib/mail/index.ts": ["SMTP_PORT", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM"],
-    "src/lib/payments/index.ts": [
-      "MOCK_MIDTRANS_SERVER_KEY",
+    "src/lib/payments/index.ts": ["MOCK_MIDTRANS_SERVER_KEY"],
+    // The two Merchant Accounts' Sumopod variables (pks-pemenuhan/04, ADR 0027):
+    // firstSetEnv(keys) reads them by a computed key, the keys spelled out in the
+    // MERCHANT_ENV table of this file. The three legacy SUMOPOD_* names stay as
+    // the YAYASAN fallback; BADAN_USAHA has its own and no fallback.
+    "src/lib/payments/merchant.ts": [
       "SUMOPOD_API_KEY",
       "SUMOPOD_WEBHOOK_SECRET",
       "SUMOPOD_BASE_URL",
+      "SUMOPOD_YAYASAN_API_KEY",
+      "SUMOPOD_YAYASAN_WEBHOOK_SECRET",
+      "SUMOPOD_YAYASAN_BASE_URL",
+      "SUMOPOD_BADAN_USAHA_API_KEY",
+      "SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET",
+      "SUMOPOD_BADAN_USAHA_BASE_URL",
     ],
     "src/lib/partnership-inquiries.ts": ["PARTNERSHIP_TEAM_EMAIL"],
     // readDonorRefundConfig(env = process.env), names built per Kind (E3/04).

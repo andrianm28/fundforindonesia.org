@@ -218,6 +218,13 @@ export default function PrivacyPage() {
             pengajuan yang ditolak, karena menjadi bukti pemeriksaan; permintaan penghapusan dapat diajukan
             lewat kontak privasi di bawah dan kami tanggapi sesuai kewajiban hukum yang berlaku.
           </p>
+          <p>
+            Data kontak pertanyaan kemitraan CSR (nama, email, telepon, alamat, dan NPWP perusahaan, serta
+            berkas proposal) disimpan selama 2 tahun sejak aktivitas terakhir: untuk akun Tim CSR, sejak
+            perusahaan terakhir aktif; untuk pertanyaan lewat formulir publik, sejak pertanyaan dikirim.
+            Setelah itu data kontak dianonimkan dan berkas proposal dihapus; ringkasan kebutuhan dan riwayat
+            status tetap disimpan tanpa data pribadi.
+          </p>
         </Section>
 
         <Section title="11. Pemberitahuan Kebocoran Data">

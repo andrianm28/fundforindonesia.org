@@ -9,6 +9,7 @@ import { isPubliclyViewable } from '@/lib/campaign-visibility';
 import { publicUrl } from '@/lib/public-url';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
 import { resolveEscrowHoldDays } from '@/lib/money/escrow-hold-config';
+import { zakatCampaignHidden } from '@/lib/zakat';
 
 // Was ISR (one render per Campaign, revalidated every 60 seconds). Since
 // rilis-1-benda/92 the root layout reads the beta marker per request
@@ -81,6 +82,10 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
           avatar: true,
         },
       },
+      // Who collects the money, with a link to its public profile (PKS
+      // Pasal 12(5)). Id and name only: this payload is serialized into the
+      // page for every visitor.
+      collectingEntity: { select: { id: true, name: true } },
       _count: {
         select: {
           // Real Donations only (ticket 94): one paid with a beta (sandbox) Payment is a test.
@@ -91,6 +96,8 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
   });
 
   if (!campaign) notFound();
+  // A zakat Campaign is public only while the zakat module is on (ADR 0028).
+  if (await zakatCampaignHidden(prisma, campaign.kind)) notFound();
 
   const lifecycleStatus = effectiveStatus(campaign, new Date());
   if (!isPubliclyViewable(lifecycleStatus)) notFound();
@@ -123,10 +130,12 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     description: campaign.description,
     story: campaign.story,
     coverImage: campaign.coverImage,
+    galleryImages: campaign.galleryImages,
     targetAmount: campaign.targetAmount,
     collectedAmount: collectedAmountForPublic,
     testDonationAmount,
     category: campaign.category,
+    kind: campaign.kind,
     location: campaign.location,
     province: campaign.province,
     regency: campaign.regency,
@@ -142,6 +151,9 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     deadline: campaign.deadline ? campaign.deadline.toISOString() : null,
     createdAt: campaign.createdAt.toISOString(),
     creator: campaign.creator,
+    collectingEntity: campaign.collectingEntity
+      ? { id: campaign.collectingEntity.id, name: campaign.collectingEntity.name }
+      : null,
     donationCount: campaign._count.donations,
     platformFeePercentBps,
     escrowHoldDays,

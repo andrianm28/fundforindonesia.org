@@ -147,6 +147,9 @@ function makeWebhookPayment(overrides: Record<string, unknown> = {}) {
     // Must equal the provider the webhook event is verified by (the 'mock' route
     // and WEBHOOK_EVENT below); the route refuses a Payment from another provider (ticket 51).
     provider: 'mock',
+    // Payment.merchantEntity is NOT NULL; the webhook (legacy URL = YAYASAN) refuses a
+    // Payment of another merchant, so the mock must carry one like a real row.
+    merchantEntity: 'YAYASAN',
     amount: 75_000,
     status: 'PENDING',
     donationId: 'donation-webhook-1',

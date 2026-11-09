@@ -16,7 +16,10 @@ const WRITE = /(prisma|tx)\.campaign\.(create|update|upsert|createMany|updateMan
 const CAMPAIGN_WRITERS = [
   "src/app/api/campaigns/route.ts",
   "src/app/api/campaigns/[slug]/route.ts",
-  "src/app/api/webhooks/[provider]/route.ts",
+  // pks-pemenuhan/04: the webhook handler moved out of route.ts into handle-webhook.ts
+  // so that two routes (the legacy [provider] URL and [provider]/[merchant], ADR 0027)
+  // share it. Same single Settlement writer, new file; route.ts files are now thin.
+  "src/app/api/webhooks/[provider]/handle-webhook.ts",
   "src/lib/campaign-lifecycle.ts",
   // The scheduled job (ticket 20): claims a Campaign for its one-time
   // deadline reminder via a predicated updateMany on deadlineReminderSentAt
@@ -57,7 +60,7 @@ describe("Campaign writers", () => {
   // Campaign write in the Settlement webhook touches collectedAmount and
   // nothing else.
   it("the Settlement webhook's Campaign writes set only collectedAmount", () => {
-    const source = readFileSync("src/app/api/webhooks/[provider]/route.ts", "utf8");
+    const source = readFileSync("src/app/api/webhooks/[provider]/handle-webhook.ts", "utf8");
     const writes = source.match(new RegExp(`${WRITE.source}\\(\\{[\\s\\S]*?\\}\\);`, "g")) ?? [];
 
     expect(writes.length).toBeGreaterThan(0);

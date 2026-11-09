@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { AdminProviderWithdrawalForm } from '@/components/admin/AdminProviderWithdrawalForm';
+import { AdminResolveWebhookForm } from '@/components/admin/AdminResolveWebhookForm';
 import { buildReconciliationReport } from '@/lib/money/reconciliation-report';
 import { listReconciliationQueue, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
 import { PAYMENT_PROVIDER_NAMES } from '@/lib/payments/provider-names';
@@ -14,8 +15,10 @@ export const dynamic = 'force-dynamic';
  * charges with no Payment (listReconciliationQueue), and records a sweep from a
  * provider through POST /api/admin/provider-withdrawals.
  *
- * Reports, never corrects: nothing here writes except the withdrawal form, and
- * that only records what the provider's dashboard already shows. Access is the
+ * Reports, never corrects: nothing here writes except the withdrawal form, which
+ * only records what the provider's dashboard already shows, and "tandai selesai"
+ * on a webhook event, which only records that an Admin dealt with it (who, when,
+ * a note; PKS pemenuhan 05). Access is the
  * /admin layout's ADMIN check, which gives anyone else a 404.
  * Runbook: docs/runbooks/payment-reconciliation.md.
  */
@@ -285,6 +288,67 @@ export default async function AdminReconciliationPage() {
         )}
       </section>
 
+      <section aria-labelledby="rec-entities" className="rounded-xl border border-gray-200 bg-white p-4">
+        <h2 id="rec-entities" className="mb-1 text-lg font-semibold text-gray-900">
+          Rekonsiliasi per merchant
+        </h2>
+        <p className="mb-4 text-xs text-gray-500">
+          Yayasan dan Badan Usaha punya merchant account sendiri di penyedia, jadi saldo dan selisihnya dibaca terpisah.
+          Dashboard penyedia hanya menampilkan satu merchant; membandingkannya dengan saldo gabungan akan menghasilkan
+          selisih palsu.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          {providerReport.byEntity.map((entity) => (
+            <div
+              key={entity.merchantEntity}
+              data-testid={`rec-entity-${entity.merchantEntity}`}
+              className="rounded-lg border border-gray-100 p-3"
+            >
+              <h3 className="text-sm font-semibold text-gray-900">
+                {entity.merchantEntity === 'YAYASAN' ? 'Yayasan' : 'Badan Usaha'}{' '}
+                <span className="font-normal text-gray-400">({entity.merchantEntity})</span>
+              </h3>
+              <p className="mt-1 text-sm text-gray-700">
+                Saldo di penyedia menurut ledger: {formatRupiah(entity.providerBalanceTotal)}. Sudah sampai di rekening:{' '}
+                {formatRupiah(entity.collectionAccountBalance)}.
+              </p>
+              {entity.pots.length === 0 ? (
+                <p className="mt-2 text-sm text-gray-500">Belum ada pergerakan di merchant ini.</p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                  {entity.pots.map((pot) => {
+                    const checked = entity.withdrawals.find((r) => r.provider === pot.provider);
+                    return (
+                      <li key={pot.provider ?? '(tanpa nama)'}>
+                        {pot.provider ?? 'Tanpa nama penyedia'}: {formatRupiah(pot.balance)}{' '}
+                        {pot.provider === null ? null : !checked ? (
+                          <span className={unchecked}>Belum pernah dicek</span>
+                        ) : checked.difference !== 0 ? (
+                          <span className={flagged}>Selisih {formatRupiah(checked.difference)}</span>
+                        ) : (
+                          <span className={fine}>Cocok</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {!entity.perProviderIsExact && (
+                <p className="mt-2 text-xs text-amber-700">
+                  {formatRupiah(entity.unattributedBalance)} bergerak tanpa nama penyedia, jadi angka di atas adalah batas
+                  bawah.
+                </p>
+              )}
+              {entity.divergence.totalDifference !== 0 && (
+                <p className="mt-2 text-xs text-red-700">
+                  Total selisih penarikan merchant ini: {formatRupiah(entity.divergence.totalDifference)}.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section aria-labelledby="rec-withdrawal" className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 id="rec-withdrawal" className="mb-3 text-lg font-semibold text-gray-900">
           Catat penarikan dari penyedia
@@ -307,6 +371,7 @@ export default async function AdminReconciliationPage() {
                   <th className={th}>Penyedia</th>
                   <th className={th}>Jenis</th>
                   <th className={th}>ID event penyedia</th>
+                  <th className={th}>Tandai selesai</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -319,6 +384,9 @@ export default async function AdminReconciliationPage() {
                       <span className="text-xs text-gray-400">({event.outcome})</span>
                     </td>
                     <td className={td}>{event.providerEventId}</td>
+                    <td className={td}>
+                      <AdminResolveWebhookForm eventId={event.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

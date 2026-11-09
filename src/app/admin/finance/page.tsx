@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { formatRupiah } from '@/lib/utils/currency';
 import {
   financeRecap,
+  splitZakatFromRecap,
   FINANCE_RECAP_COLUMNS,
   InvalidRecapPeriodError,
   wibMonthOf,
@@ -125,6 +126,28 @@ export default async function AdminFinancePage({ searchParams }: RouteContext) {
                       </td>
                     ))}
                   </tr>
+                  {/* Zakat apart from general donations (ADR 0028), only when the period holds any. */}
+                  {(() => {
+                    const { zakat, general } = splitZakatFromRecap(recap);
+                    if (zakat.rows.length === 0) return null;
+                    return (
+                      [
+                        ['Subtotal donasi umum (tanpa zakat)', general],
+                        ['Subtotal zakat', zakat],
+                      ] as const
+                    ).map(([label, half]) => (
+                      <tr key={label}>
+                        <th scope="row" colSpan={3} className="px-4 py-3 text-left text-sm font-medium text-gray-900">
+                          {label}
+                        </th>
+                        {FINANCE_RECAP_COLUMNS.map((c) => (
+                          <td key={c} className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                            {formatRupiah(half.totals[c])}
+                          </td>
+                        ))}
+                      </tr>
+                    ));
+                  })()}
                 </tfoot>
               )}
             </table>

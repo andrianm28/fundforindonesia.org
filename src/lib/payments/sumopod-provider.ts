@@ -1,5 +1,6 @@
 import { InvalidWebhookSignatureError } from './mock-provider';
 import { verifySumopodSignature } from './sumopod-signature';
+import type { MerchantEntity } from './merchant';
 import type {
   ChargeInput,
   ChargeResult,
@@ -33,6 +34,8 @@ export interface SumopodConfig {
   apiKey: string;
   webhookSecret: string;
   baseUrl: string;
+  /** Which Merchant Account these credentials belong to (ADR 0027). Defaults to YAYASAN. */
+  merchant?: MerchantEntity;
   /** Injected in tests. Production passes nothing and gets global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -102,6 +105,7 @@ export const SUMOPOD_CHARGE_TIMEOUT_MS = 25_000;
 export class SumopodProvider implements PaymentProvider {
   readonly name = 'sumopod';
   readonly method = 'qris_redirect' as const;
+  readonly merchant: MerchantEntity;
 
   private readonly apiKey: string;
   private readonly webhookSecret: string;
@@ -122,6 +126,7 @@ export class SumopodProvider implements PaymentProvider {
     if (!config.baseUrl) {
       throw new Error('SumopodProvider requires a non-empty baseUrl');
     }
+    this.merchant = config.merchant ?? 'YAYASAN';
     this.apiKey = config.apiKey;
     this.webhookSecret = config.webhookSecret;
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');

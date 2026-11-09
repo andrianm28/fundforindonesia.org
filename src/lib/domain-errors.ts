@@ -30,6 +30,7 @@ export type LifecycleErrorCode =
   | "FLAG_ALREADY_RESOLVED"
   | "PAYOUT_NOT_ALLOWED_FOR_STATUS"
   | "CAMPAIGN_NOT_EDITABLE"
+  | "REJECTED_FINAL"
   | "ACTIVE_CONTENT_FROZEN"
   | "VERIFICATION_REQUEST_NOT_FOUND"
   | "VERIFICATION_REQUEST_NOT_PENDING"
@@ -83,6 +84,11 @@ export type MoneyErrorCode =
   | "MANUAL_CONTRIBUTION_PROOF_REQUIRED"
   | "MANUAL_CONTRIBUTION_AMOUNT_INVALID"
   | "MANUAL_CONTRIBUTION_NOT_PENDING"
+  | "NOTIFICATION_NOT_FOUND"
+  | "NOTIFICATION_NOT_RESENDABLE"
+  | "WEBHOOK_EVENT_NOT_FOUND"
+  | "WEBHOOK_EVENT_NOT_OPEN"
+  | "WEBHOOK_RESOLUTION_INVALID"
   | "MANUAL_CONTRIBUTION_NOT_APPROVED"
   | "MANUAL_CONTRIBUTION_ALREADY_SPENT"
   | "PROVIDER_WITHDRAWAL_INVALID"
@@ -249,6 +255,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   // when the Batch completes -- a conflict with state, not a bad input.
   TRIP_PAYOUT_FUNDS_NOT_COMPLETED: 409,
   CAMPAIGN_NOT_EDITABLE: 409,
+  REJECTED_FINAL: 409,
   // The Fundraiser could not fix it by resubmitting: a Verification Request
   // does not reopen title and description, only story and cover image stay
   // editable (verification-request 09), so this is a status conflict, not a
@@ -359,6 +366,14 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   DONATION_ANONYMISED: 409,
   ANONYMISATION_BLOCKED_BY_OPEN_REFUND: 409,
   MANUAL_CONTRIBUTION_NOT_FOUND: 404,
+  // PKS pemenuhan 05: a queue row or webhook event that is not there, one that
+  // is already closed or being sent (a conflict with its state, not a
+  // malformed request), and a note the Admin must write.
+  NOTIFICATION_NOT_FOUND: 404,
+  NOTIFICATION_NOT_RESENDABLE: 409,
+  WEBHOOK_EVENT_NOT_FOUND: 404,
+  WEBHOOK_EVENT_NOT_OPEN: 409,
+  WEBHOOK_RESOLUTION_INVALID: 400,
   // Unmet preconditions the Admin can fix by filling the form in properly,
   // like REFUND_EXCEEDS_REMAINING and DEADLINE_REQUIRED.
   MANUAL_CONTRIBUTION_TARGET_INVALID: 400,

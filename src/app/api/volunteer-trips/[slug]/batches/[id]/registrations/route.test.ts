@@ -5,6 +5,7 @@ import { verifyRegistrationResultToken } from '@/lib/money/registration-result-t
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     volunteerTrip: { findUnique: vi.fn() },
+    siteSetting: { findUnique: vi.fn().mockResolvedValue(null) },
     paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     payment: { create: vi.fn() },
     escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -29,6 +30,8 @@ const mockGuard = vi.fn();
 vi.mock('@/lib/rate-limit-guard', () => ({ guardRoute: (...a: unknown[]) => mockGuard(...a) }));
 
 vi.mock('@/lib/donations', () => ({
+  MIN_DONATION_AMOUNT: 1000,
+  MAX_DONATION_AMOUNT: 1_000_000_000,
   donationsEnabled: vi.fn(),
   sandboxInProductionReason: vi.fn(),
   DONATIONS_DISABLED_MESSAGE:
@@ -83,6 +86,7 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     vi.stubEnv('NEXT_PUBLIC_VOLUNTEER_ENABLED', 'true');
     mockDonationsEnabled.mockReturnValue(true);
     mockSandboxInProductionReason.mockReturnValue(null);
+    (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue(null);
     mockGuard.mockResolvedValue(null);
     mockGetServerSession.mockResolvedValue({ user: { id: 'volunteer-1' } });
     mockTripFindUnique.mockResolvedValue({ id: 'trip-1' });
@@ -135,6 +139,25 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
     expect(mockHoldRegistration).not.toHaveBeenCalled();
     expect(createCharge).not.toHaveBeenCalled();
     expect(mockPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses to charge the Trip Fee while an Admin has switched donations off, holding nothing (PKS ticket 01)', async () => {
+    (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue({
+      key: 'operations',
+      value: { donationsOpen: false, maintenance: { on: false, message: '' }, history: [] },
+    });
+    const createCharge = vi.fn();
+    mockGetPaymentProvider.mockReturnValue({ name: 'sumopod', method: 'qris_redirect', createCharge });
+
+    const response = await POST(createRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe(
+      'Donasi sedang tidak tersedia karena sistem pembayaran sedang disiapkan.',
+    );
+    expect(mockGetServerSession).not.toHaveBeenCalled();
+    expect(mockHoldRegistration).not.toHaveBeenCalled();
+    expect(createCharge).not.toHaveBeenCalled();
   });
 
   it('refuses to charge the Trip Fee when sandbox-in-production blocks it, holding nothing', async () => {
@@ -236,6 +259,8 @@ describe('POST /api/volunteer-trips/[slug]/batches/[id]/registrations', () => {
           donationId: undefined,
           amount: 1_500_000,
           status: 'PENDING',
+          // ADR 0027: a Trip Fee is yayasan money until a Trip can be marked commercial.
+          merchantEntity: 'YAYASAN',
         }),
       }),
     );

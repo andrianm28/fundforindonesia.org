@@ -4,6 +4,9 @@ import {
   notifyCampaignUpdate,
   notifyPayout,
   notifyRegistrationConfirmed,
+  notifyPaymentLapsed,
+  notifyRefundCompleted,
+  notifyPayoutRevision,
 } from './notifications';
 
 // Mock prisma
@@ -265,6 +268,111 @@ describe('notifications', () => {
       const callData = mockNotificationCreateMany.mock.calls[0][0].data;
       expect(callData).toHaveLength(1);
       expect(callData[0].userId).toBe('donor-1');
+    });
+  });
+  describe('notifyPaymentLapsed', () => {
+    it('tells a registered donor their payment expired, linking back to the campaign', async () => {
+      await notifyPaymentLapsed({
+        donorId: 'donor-1',
+        campaignId: 'campaign-1',
+        campaignTitle: 'Sumur Desa',
+        amount: 100_000,
+        outcome: 'expired',
+      });
+
+      expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
+      const data = mockNotificationCreate.mock.calls[0][0].data;
+      expect(data).toMatchObject({
+        type: 'payment_expired',
+        userId: 'donor-1',
+        link: '/campaign/campaign-1',
+      });
+      expect(data.message).toContain('Sumur Desa');
+      expect(data.message).toContain('kedaluwarsa');
+    });
+
+    it('tells a registered donor their payment failed', async () => {
+      await notifyPaymentLapsed({
+        donorId: 'donor-1',
+        campaignId: 'campaign-1',
+        campaignTitle: 'Sumur Desa',
+        amount: 100_000,
+        outcome: 'failed',
+      });
+
+      const data = mockNotificationCreate.mock.calls[0][0].data;
+      expect(data).toMatchObject({ type: 'payment_failed', userId: 'donor-1' });
+      expect(data.message).toContain('gagal');
+    });
+
+    it('creates nothing for a guest donor', async () => {
+      await notifyPaymentLapsed({
+        donorId: null,
+        campaignId: 'campaign-1',
+        campaignTitle: 'Sumur Desa',
+        amount: 100_000,
+        outcome: 'expired',
+      });
+
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notifyRefundCompleted', () => {
+    it('tells a registered donor their refund has been transferred, using the client it is given', async () => {
+      const create = vi.fn().mockResolvedValue({});
+
+      await notifyRefundCompleted({ notification: { create } } as never, {
+        donorId: 'donor-1',
+        campaignId: 'campaign-1',
+        amount: 50_000,
+      });
+
+      expect(create).toHaveBeenCalledTimes(1);
+      const data = create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ type: 'refund_completed', userId: 'donor-1', link: '/campaign/campaign-1' });
+      expect(data.message).toContain('dikembalikan');
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+    });
+
+    it('creates nothing for a guest or anonymised donor', async () => {
+      const create = vi.fn();
+      await notifyRefundCompleted({ notification: { create } } as never, {
+        donorId: null,
+        campaignId: 'campaign-1',
+        amount: 50_000,
+      });
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notifyPayoutRevision', () => {
+    it("tells the Fundraiser, linking a Campaign's payout screen", async () => {
+      const create = vi.fn().mockResolvedValue({});
+      const client = {
+        notification: { create },
+        payout: { findUnique: vi.fn().mockResolvedValue({ volunteerTripId: null, campaign: { slug: 'sumur-desa' } }) },
+        volunteerTrip: { findUnique: vi.fn() },
+      };
+
+      await notifyPayoutRevision(client as never, { payoutId: 'p-1', userId: 'fundraiser-1', reason: 'Lampirkan RAB' });
+
+      const data = create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ type: 'payout_revision', userId: 'fundraiser-1', link: '/akun/kampanye-saya/sumur-desa/pencairan' });
+      expect(data.message).toContain('Lampirkan RAB');
+    });
+
+    it('links the Trip screen for a Trip Fee Payout', async () => {
+      const create = vi.fn().mockResolvedValue({});
+      const client = {
+        notification: { create },
+        payout: { findUnique: vi.fn().mockResolvedValue({ volunteerTripId: 'trip-1', campaign: null }) },
+        volunteerTrip: { findUnique: vi.fn().mockResolvedValue({ slug: 'trip-lombok' }) },
+      };
+
+      await notifyPayoutRevision(client as never, { payoutId: 'p-1', userId: 'fundraiser-1', reason: 'x' });
+
+      expect(create.mock.calls[0][0].data.link).toBe('/akun/volunteer-trip/trip-lombok');
     });
   });
 });

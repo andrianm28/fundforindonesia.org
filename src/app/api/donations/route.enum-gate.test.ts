@@ -3,6 +3,8 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    // Setelan operasional (src/lib/operations.ts): no row, so donations are open.
+    siteSetting: { findUnique: vi.fn().mockResolvedValue(null) },
     paymentProviderSetting: { findFirst: vi.fn().mockResolvedValue(null) },
     campaign: {
       findUnique: vi.fn(),

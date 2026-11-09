@@ -2,6 +2,7 @@ import { MetadataRoute } from 'next';
 import { prisma } from '@/lib/prisma';
 import { sitemapCampaignWhere } from '@/lib/subject-guard';
 import { publicUrl } from '@/lib/public-url';
+import { resolveOperationsOrDefaults } from '@/lib/operations';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Static pages
@@ -54,6 +55,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
+  // The zakat module (ADR 0028): its page is listed, and its Campaigns are
+  // kept, only while an Admin has switched it on. Off is the default.
+  const zakatOn = (await resolveOperationsOrDefaults(prisma)).zakat.enabled;
+  if (zakatOn) {
+    staticPages.push({
+      url: publicUrl('/zakat'),
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.6,
+    });
+  }
+
   // Category pages
   const categories = await prisma.category.findMany({
     select: { slug: true },
@@ -70,16 +83,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // transparency pages stay findable (CONTEXT.md, Campaign Status).
   const campaigns = await prisma.campaign.findMany({
     where: sitemapCampaignWhere(),
-    select: { slug: true, updatedAt: true },
+    select: { slug: true, updatedAt: true, kind: true },
     orderBy: { updatedAt: 'desc' },
   });
 
-  const campaignPages: MetadataRoute.Sitemap = campaigns.map((campaign) => ({
-    url: publicUrl(`/campaign/${campaign.slug}`),
-    lastModified: campaign.updatedAt,
-    changeFrequency: 'daily' as const,
-    priority: 0.9,
+  const campaignPages: MetadataRoute.Sitemap = campaigns
+    .filter((campaign) => zakatOn || campaign.kind !== 'ZAKAT')
+    .map((campaign) => ({
+      url: publicUrl(`/campaign/${campaign.slug}`),
+      lastModified: campaign.updatedAt,
+      changeFrequency: 'daily' as const,
+      priority: 0.9,
+    }));
+
+  // Partner Organisation profiles (PKS Pasal 12(5)): never deleted, public
+  // fields only, so every one is listed.
+  const organisations = await prisma.partnerOrganisation.findMany({
+    select: { id: true },
+  });
+
+  const organisationPages: MetadataRoute.Sitemap = organisations.map((organisation) => ({
+    url: publicUrl(`/lembaga/${organisation.id}`),
+    changeFrequency: 'weekly' as const,
+    priority: 0.5,
   }));
 
-  return [...staticPages, ...categoryPages, ...campaignPages];
+  return [...staticPages, ...categoryPages, ...campaignPages, ...organisationPages];
 }

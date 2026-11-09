@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { donationsEnabled, sandboxInProductionReason, DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
+import { donationsSwitchedOff } from '@/lib/operations';
+import { zakatCheckoutRefusal } from '@/lib/zakat';
 import { campaignAcceptsDonations, donationBlock } from '@/lib/campaign-lifecycle';
 import { COLLECTING_ENTITY_SELECT } from '@/lib/collecting-entity';
 import { donationRefusalCopy } from '@/lib/campaign-page-status';
@@ -65,7 +67,7 @@ const BUSY: RetryResult = {
   body: { error: 'Sedang banyak permintaan pembayaran ulang. Coba lagi sebentar.' },
 };
 
-type RetryCampaign = Parameters<typeof campaignAcceptsDonations>[0] & { isDemo: boolean };
+type RetryCampaign = Parameters<typeof campaignAcceptsDonations>[0] & { isDemo: boolean; collectingEntity: { id: string } | null };
 
 /** Why a new charge cannot be made for this Campaign right now, or null when it can. */
 export function campaignRetryRefusal(campaign: RetryCampaign, now: Date): { status: number; error: string } | null {
@@ -79,6 +81,22 @@ export function campaignRetryRefusal(campaign: RetryCampaign, now: Date): { stat
     return { status: 400, error: 'Campaign tidak aktif. Hanya campaign aktif yang dapat menerima donasi.' };
   }
   return null;
+}
+
+/**
+ * {@link campaignRetryRefusal} plus the Admin's donation switch, for a reader
+ * outside the retry route (the payment result page): it must not offer a
+ * "coba bayar ulang" button the route would answer with 503. Fails closed like
+ * the route (donationsSwitchedOff treats an unreadable switch as off).
+ */
+export async function campaignRetryRefusalWithSwitch(
+  campaign: RetryCampaign,
+  now: Date,
+): Promise<{ status: number; error: string } | null> {
+  const refusal = campaignRetryRefusal(campaign, now);
+  if (refusal) return refusal;
+  if (await donationsSwitchedOff(prisma)) return { status: 503, error: DONATIONS_DISABLED_MESSAGE };
+  return await zakatCheckoutRefusal(prisma, campaign);
 }
 
 /** The Campaign fields {@link campaignRetryRefusal} reads. */
@@ -115,6 +133,8 @@ export async function retryDonationPayment(params: RetryDonationParams): Promise
     console.error(`[donations/retry] refusing every retry: ${blocked}`);
     return { status: 503, body: { error: DONATIONS_DISABLED_MESSAGE } };
   }
+  // The Admin's switch (src/lib/operations.ts): a second lock, only ever adds a refusal.
+  if (await donationsSwitchedOff(prisma)) return { status: 503, body: { error: DONATIONS_DISABLED_MESSAGE } };
 
   // The cap comes first, so a "busy" answer does not spend the Donor's hourly
   // allowance below.
@@ -169,6 +189,10 @@ function retryUnderLock(donationId: string, authorize: RetryDonationParams['auth
       const now = new Date();
       const refusal = campaignRetryRefusal(campaign, now);
       if (refusal) return { status: refusal.status, body: { error: refusal.error } };
+      // Zakat's own switch and recipient (ADR 0028): a pending zakat Donation
+      // cannot be paid again once the module is off.
+      const zakatRefusal = await zakatCheckoutRefusal(prisma, campaign);
+      if (zakatRefusal) return { status: zakatRefusal.status, body: { error: zakatRefusal.error } };
 
       const latest = donation.payments[0];
       if (!latest) {

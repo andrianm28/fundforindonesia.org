@@ -31,6 +31,8 @@ vi.mock('@/lib/prisma', () => ({
     platformFeeRule: { findFirst: vi.fn() },
     platformFeeThreshold: { findFirst: vi.fn() },
     escrowHoldSetting: { findFirst: vi.fn().mockResolvedValue(null) },
+    // Setelan operasional (src/lib/operations.ts): no row = donations open.
+    siteSetting: { findUnique: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
   },
 }));
@@ -48,6 +50,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { getPaymentProvider, PaymentProviderNotConfiguredError } from '@/lib/payments';
 import { CampaignStatus } from '@/generated/prisma/client';
+import { DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 
 const mockCampaignFindUnique = prisma.campaign.findUnique as unknown as Mock;
 const mockDonationCreate = prisma.donation.create as unknown as Mock;
@@ -113,6 +116,7 @@ beforeEach(() => {
   mockSandboxReason.mockReturnValue(null);
   callOrder = [];
   mockGetServerSession.mockResolvedValue(null);
+  (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue(null);
   mockCampaignFindUnique.mockResolvedValue({
     id: 'campaign-1',
     lifecycleStatus: CampaignStatus.ACTIVE,
@@ -141,6 +145,30 @@ beforeEach(() => {
   // 0 bps / 0 threshold (prd-compliance 17), never an invented rate.
   mockPlatformFeeRuleFindFirst.mockResolvedValue(null);
   mockPlatformFeeThresholdFindFirst.mockResolvedValue(null);
+});
+
+describe('POST /api/donations while an Admin has switched donations off (PKS ticket 01)', () => {
+  it('answers 503 with the same message as the env-off gate, before the body, the session or anything is touched', async () => {
+    (prisma.siteSetting.findUnique as unknown as Mock).mockResolvedValue({
+      key: 'operations',
+      value: { donationsOpen: false, maintenance: { on: false, message: '' }, history: [] },
+    });
+
+    const res = await POST(createRequest(QRIS_BODY));
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe(DONATIONS_DISABLED_MESSAGE);
+    expect(mockGetServerSession).not.toHaveBeenCalled();
+    expect(mockCampaignFindUnique).not.toHaveBeenCalled();
+    expect(mockGetPaymentProvider).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the switch cannot be read, rather than guessing open', async () => {
+    (prisma.siteSetting.findUnique as unknown as Mock).mockRejectedValue(new Error('db down'));
+
+    expect((await POST(createRequest(QRIS_BODY))).status).toBe(503);
+    expect(mockGetPaymentProvider).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/donations charging through QRIS', () => {
@@ -244,7 +272,7 @@ describe('POST /api/donations through a provider an Admin switched on (prd-compl
     const response = await POST(createRequest({ ...QRIS_BODY, paymentMethod: 'ewallet' }));
 
     expect(response.status).toBe(201);
-    expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod');
+    expect(mockGetPaymentProvider).toHaveBeenCalledWith('sumopod', 'YAYASAN');
     expect(provider.createCharge).toHaveBeenCalledWith(expect.objectContaining({ method: 'ewallet_redirect' }));
     expect(mockPaymentCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ provider: 'sumopod', method: 'ewallet_redirect', providerRef: 'donation-1' }),

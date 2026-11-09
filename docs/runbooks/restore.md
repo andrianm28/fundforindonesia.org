@@ -56,7 +56,7 @@ Dokumen ini sengaja generik. Lokasi backup, nama bucket, alat dan kunci enkripsi
 
 Langkah 1 sampai 6 sama, tetapi targetnya database produksi yang baru dan kosong, dan keputusannya milik owner:
 
-- **Langkah owner:** menghentikan aplikasi (kill switch donasi: kosongkan `PAYMENT_PROVIDER` lalu restart) sebelum menyentuh data, memilih backup yang dipulihkan, dan menjalankan semua perintah di host produksi.
+- **Langkah owner:** menghentikan aplikasi sebelum menyentuh data (tutup donasi dan nyalakan mode pemeliharaan dari **Admin Panel > Operasional**, atau set `NEXT_PUBLIC_DONATIONS_ENABLED` ke selain `true` lalu build ulang bila panel tak terjangkau; lihat `docs/runbooks/insiden.md`; mengosongkan `PAYMENT_PROVIDER` bukan kill switch: pilihan provider Admin di panel mengalahkannya), memilih backup yang dipulihkan, dan menjalankan semua perintah di host produksi.
 - Data yang ditulis setelah backup terakhir hilang. Donasi yang sudah dibayar di payment provider tetapi tidak ada di data hasil restore harus direkonsiliasi lewat dashboard provider dan `docs/runbooks/payment-reconciliation.md`.
 - Jalankan migrasi (`prisma migrate deploy`) bila dump lebih tua dari rilis yang sedang berjalan.
 - Pastikan volume uploads dipulihkan dari backup volume-nya sendiri; dump database tidak memuat berkas unggahan.

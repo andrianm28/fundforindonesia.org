@@ -12,8 +12,16 @@ vi.mock('@/lib/volunteer/refund-sweep', () => ({
   sweepStuckLateSettlementRefunds: vi.fn(),
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/failed-notifications', () => ({
+  runNotificationQueuePhase: vi.fn(),
+}));
 vi.mock('@/lib/tim-csr', () => ({
   anonymiseExpiredCompanies: vi.fn(),
+}));
+// The recurring donation phase is tested against a real Postgres
+// (src/__tests__/integration/donasi-rutin-real-db.test.ts).
+vi.mock('@/lib/recurring-donations/billing', () => ({
+  runRecurringDonationBilling: vi.fn(),
 }));
 vi.mock('@/lib/reminders', () => ({
   sendCampaignDeadlineReminders: vi.fn(),
@@ -21,6 +29,8 @@ vi.mock('@/lib/reminders', () => ({
 }));
 
 import { anonymiseExpiredCompanies } from '@/lib/tim-csr';
+import { runNotificationQueuePhase } from '@/lib/failed-notifications';
+import { runRecurringDonationBilling } from '@/lib/recurring-donations/billing';
 import { releaseMaturedEscrow } from '@/lib/money/escrow';
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings } from '@/lib/reminders';
 import { sweepStuckLateSettlementRefunds } from '@/lib/volunteer/refund-sweep';
@@ -31,6 +41,10 @@ const mockSendCampaignDeadlineReminders = sendCampaignDeadlineReminders as unkno
 const mockSendKindAuthorisationExpiryWarnings = sendKindAuthorisationExpiryWarnings as unknown as Mock;
 
 const mockAnonymiseCompanies = anonymiseExpiredCompanies as unknown as Mock;
+const mockNotificationQueue = runNotificationQueuePhase as unknown as Mock;
+const mockRecurringBilling = runRecurringDonationBilling as unknown as Mock;
+const RECURRING_RESULT = { consideredCount: 4, issuedCount: 2, skippedCount: 1, failedCount: 1 };
+const QUEUE_RESULT = { attemptedCount: 2, sentCount: 1, failedCount: 1, alertsSent: ['notification_queue'], purgedCount: 0 };
 const mockSweepRefunds = sweepStuckLateSettlementRefunds as unknown as Mock;
 const SWEEP_RESULT = { consideredCount: 3, attemptedCount: 3, refundedCount: 2, skippedCount: 0, failedCount: 1 };
 const NOW = new Date('2026-09-27T00:00:00.000Z');
@@ -43,6 +57,8 @@ describe('runScheduledJobs', () => {
     mockSendKindAuthorisationExpiryWarnings.mockResolvedValue({ attemptedCount: 0, consideredCount: 0 });
     mockSweepRefunds.mockResolvedValue(SWEEP_RESULT);
     mockAnonymiseCompanies.mockResolvedValue({ consideredCount: 2, anonymisedCount: 1 });
+    mockNotificationQueue.mockResolvedValue(QUEUE_RESULT);
+    mockRecurringBilling.mockResolvedValue(RECURRING_RESULT);
   });
 
   it('takes the current time as an argument and drives every phase with it directly, never through a timer', async () => {
@@ -52,6 +68,8 @@ describe('runScheduledJobs', () => {
     expect(mockSendCampaignDeadlineReminders).toHaveBeenCalledWith(NOW, undefined);
     expect(mockSendKindAuthorisationExpiryWarnings).toHaveBeenCalledWith(NOW, undefined);
     expect(mockAnonymiseCompanies).toHaveBeenCalledWith(expect.anything(), NOW);
+    expect(mockNotificationQueue).toHaveBeenCalledWith(NOW, undefined);
+    expect(mockRecurringBilling).toHaveBeenCalledWith(NOW, undefined);
   });
 
   it('aggregates every phase\'s result under its own key', async () => {
@@ -63,7 +81,20 @@ describe('runScheduledJobs', () => {
       kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
       lateSettlementRefunds: SWEEP_RESULT,
       companyRetention: { consideredCount: 2, anonymisedCount: 1 },
+      notificationQueue: QUEUE_RESULT,
+      recurringDonations: RECURRING_RESULT,
     });
+  });
+
+  it('reports the recurring donation phase as failed, and still returns every other result, when it throws', async () => {
+    mockRecurringBilling.mockRejectedValueOnce(new Error('db blip'));
+
+    const report = await runScheduledJobsReport(NOW);
+
+    expect(report.ok).toBe(false);
+    expect(report.failedPhases).toEqual(['recurringDonations']);
+    expect(report.result.recurringDonations).toEqual({ consideredCount: 0, issuedCount: 0, skippedCount: 0, failedCount: 0 });
+    expect(report.result.escrowRelease).toEqual({ releasedCount: 2, consideredCount: 2 });
   });
 
   it('still runs the other two phases, and reports a zeroed result, when the escrow release phase throws', async () => {

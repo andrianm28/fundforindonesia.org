@@ -33,6 +33,7 @@ export const pathnames = {
   '/receipt/[token]': '/receipt/[token]',
   '/akad-wakaf/[token]': '/akad-wakaf/[token]',
   '/sertifikat/[code]': { id: '/sertifikat/[code]', en: '/certificate/[code]' },
+  '/lembaga/[id]': { id: '/lembaga/[id]', en: '/organisation/[id]' },
   // Reserved by Q7, pages not built yet.
   '/wakaf': { id: '/wakaf', en: '/waqf' },
   '/hibah': '/hibah',

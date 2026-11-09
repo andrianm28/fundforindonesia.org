@@ -11,15 +11,21 @@ import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEnti
 import { refusalResponse } from '@/lib/refusal-response';
 import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
 import { campaignLocationSchema } from '@/lib/campaign-location';
+import { parseCampaignSort, rankByCountedProgress } from '@/lib/campaign-sort';
+import { galleryImagesSchema } from '@/lib/campaign-gallery';
+import { zakatSwitchedOn } from '@/lib/operations';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
   description: z.string().min(1, "Deskripsi harus diisi"),
   story: z.string().min(1, "Cerita campaign harus diisi"),
   coverImage: coverImageSchema,
+  // Up to six more images beside the cover (PKS pasal 3.3).
+  galleryImages: galleryImagesSchema.optional(),
   targetAmount: z.number().positive("Target donasi harus lebih dari 0"),
   category: z.string().min(1, "Kategori harus dipilih"),
-  kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
+  // ZAKAT parses here and is refused below unless the zakat module is ON (ADR 0028).
+  kind: z.enum([...KINDS, 'ZAKAT'], { message: "Kind harus dipilih" }),
   deadline: z.string().datetime().optional(),
   // The beneficiary this Campaign names, stored as typed (PRD FFI-02, and
   // one of the three matches a Verifier's duplicate hints are built from,
@@ -69,6 +75,13 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
+    // The catalogue order (PKS 3.7); an unknown one is refused rather than
+    // silently falling back, so a typo in a client is seen.
+    const sort = parseCampaignSort(searchParams.get('sort'));
+    if (!sort) {
+      return NextResponse.json({ error: 'Urutan tidak dikenal' }, { status: 400 });
+    }
+
     // Only effectively Active Campaigns are listed (CONTEXT.md, Campaign
     // Status); a `?status=` in the query is ignored.
     const where: Prisma.CampaignWhereInput = await listableCampaignWhere(prisma, new Date());
@@ -96,22 +109,44 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const [campaigns, total] = await Promise.all([
-      prisma.campaign.findMany({
-        where,
-        include: {
-          creator: {
-            select: {
-              name: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.campaign.count({ where }),
-    ]);
+    const withCreator = { creator: { select: { name: true } } };
+    // What only the Verifier and the Fundraiser see (PKS pasal 3.2, 3.4):
+    // the public list never carries it.
+    const hidden = { beneficiaryRelationship: true, rejectionFinal: true } as const;
+    let campaigns;
+    let total: number;
+
+    if (sort === 'hampir-tercapai' || sort === 'terbanyak') {
+      // These two depend on money, and the stored counter still holds beta
+      // (sandbox) Payments, so the order is settled on the counted figure
+      // (counted-payment.ts) over a slim read of every listed Campaign, and
+      // only the requested page is then read in full.
+      const slim = await withCountedCollectedAmount(
+        prisma,
+        await prisma.campaign.findMany({
+          where,
+          select: { id: true, collectedAmount: true, targetAmount: true, createdAt: true },
+        }),
+      );
+      total = slim.length;
+      const pageIds = rankByCountedProgress(slim, sort)
+        .slice(skip, skip + limit)
+        .map((c) => c.id);
+      const rows = await prisma.campaign.findMany({ where: { id: { in: pageIds } }, include: withCreator, omit: hidden });
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      campaigns = pageIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+    } else {
+      // terbaru and segera-berakhir are plain column orders; the second reads
+      // the existing (lifecycleStatus, deadline) index, wakaf (no deadline) last.
+      const orderBy: Prisma.CampaignOrderByWithRelationInput | Prisma.CampaignOrderByWithRelationInput[] =
+        sort === 'segera-berakhir'
+          ? [{ deadline: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }]
+          : { createdAt: 'desc' };
+      [campaigns, total] = await Promise.all([
+        prisma.campaign.findMany({ where, include: withCreator, omit: hidden, orderBy, skip, take: limit }),
+        prisma.campaign.count({ where }),
+      ]);
+    }
 
     const totalPages = Math.ceil(total / limit);
 
@@ -167,9 +202,18 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, description, story, coverImage, targetAmount, category, kind, deadline } = result.data;
+
+    // Kind ZAKAT exists only while the module is switched on; before that it is
+    // as unknown as any other word (ADR 0025, then 0028).
+    if (kind === 'ZAKAT' && !(await zakatSwitchedOn(prisma))) {
+      return NextResponse.json(
+        { error: 'Validasi gagal', fieldErrors: { kind: ['Kind harus dipilih'] } },
+        { status: 400 }
+      );
+    }
     const beneficiaryName = result.data.beneficiaryName?.trim() || null;
     // Where it happens and who it helps (ticket 74): all optional, null when blank.
-    const { province, regency, beneficiaryDescription, beneficiaryCount } = result.data;
+    const { province, regency, beneficiaryDescription, beneficiaryCount, beneficiaryRelationship } = result.data;
 
     // The Category must be one the Admin keeps in the Category table: a slug
     // with no row there files the Campaign under a Category page that 404s.
@@ -205,6 +249,7 @@ export async function POST(request: NextRequest) {
         description,
         story,
         coverImage,
+        galleryImages: result.data.galleryImages ?? [],
         targetAmount,
         category,
         kind,
@@ -214,6 +259,7 @@ export async function POST(request: NextRequest) {
         regency: regency ?? null,
         beneficiaryDescription: beneficiaryDescription ?? null,
         beneficiaryCount: beneficiaryCount ?? null,
+        beneficiaryRelationship: beneficiaryRelationship ?? null,
         creatorId: session.user.id,
         collectingEntityId,
         // A new campaign is a Draft: visible only to its Fundraiser, and not

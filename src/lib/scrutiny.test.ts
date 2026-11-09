@@ -115,6 +115,7 @@ function makeDb(seed: { donation?: SeedDonation | null; thresholds?: { kind: str
         };
       },
     },
+    partnerOrganisation: { findUnique: async () => null },
     verificationChecklistItem: {
       findMany: async () => [
         { id: 'bukan-duplikat', label: 'Sudah dipastikan bukan duplikat Campaign lain', required: true, position: 1, active: true, kind: null },

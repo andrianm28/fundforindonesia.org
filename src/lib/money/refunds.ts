@@ -47,6 +47,7 @@ import {
 import { STANDING_REFUND_WHERE, isRefundStanding, readRefundFreezeEntries } from './refund-standing';
 import { emailRefundOutcome, emailTripFeeRefundApproved } from '@/lib/status-emails';
 import type { Mailer } from '@/lib/mail';
+import { notifyRefundCompleted } from '@/lib/notifications';
 
 /**
  * Refund: request, approve, complete.
@@ -101,7 +102,7 @@ export {
   RefundReasonInvalidError,
 };
 
-type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox' | 'provider'> & {
+type PaymentWithSubjectLinks = Pick<Payment, 'status' | 'amount' | 'providerFee' | 'platformFee' | 'escrowReleasedAt' | 'sandbox' | 'provider' | 'merchantEntity'> & {
   donation: { campaignId: string; anonymisedAt: Date | null } | null;
   registration: { batch: { tripId: string } } | null;
 };
@@ -403,7 +404,7 @@ export async function createRefund(
   await postTransaction(
     tx,
     refundRequestedLegs({ subject, amount, source, platformFeePortion, providerFeePortion }),
-    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id), provider: payment.provider },
+    { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: refundFreezeTransactionId(refund.id), provider: payment.provider, merchantEntity: payment.merchantEntity, actorId: requestedById },
   );
 
   return refund;
@@ -598,7 +599,7 @@ export async function approveRefund(
     await postTransaction(
       tx,
       refundApprovedLegs({ subject, amount: refund.amount, source, shortfall }),
-      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}`, provider: payment.provider },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-approved-${refund.id}`, provider: payment.provider, merchantEntity: payment.merchantEntity, actorId: approvedById },
     );
   });
 
@@ -693,7 +694,10 @@ export async function completeRefund(
 
   const typedAccountNumber = cleanDestinationText(donorAccountNumber, 'Nomor rekening', 'donorAccountNumber');
 
-  await prisma.$transaction(async (tx) => {
+  // What the in-app notification needs, read inside the transaction from the
+  // row it already loads (no extra query), returned from it and used only
+  // after commit.
+  const donorNotice = await prisma.$transaction(async (tx) => {
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
       include: {
@@ -765,9 +769,26 @@ export async function completeRefund(
     await postTransaction(
       tx,
       refundPaidLegs({ amount: refund.amount }),
-      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}`, provider: payment.provider },
+      { refundId: refund.id, sandbox: sandboxModeOf(refund), transactionId: `refund-completed-${refund.id}`, provider: payment.provider, merchantEntity: payment.merchantEntity, actorId: completedById },
     );
+
+    const donation = refund.payment.donation;
+    return donation
+      ? { donorId: donation.donorId ?? null, campaignId: donation.campaignId, amount: refund.amount }
+      : null;
   });
+
+  // After commit, like the email below: a failed in-app notification must
+  // never undo a Refund that has been paid. Registered Donors only.
+  if (donorNotice) {
+    try {
+      await notifyRefundCompleted(prisma, donorNotice);
+    } catch (err) {
+      console.error(
+        `[refunds] refund ${refundId} completed but the in-app notification was not created: ${err instanceof Error ? err.name : 'unknown error'}`,
+      );
+    }
+  }
 
   // After commit, never inside it: the Refund is paid whether or not the
   // Donor's email goes out, and nothing here throws (ticket 68). The email
@@ -883,6 +904,8 @@ async function resolveRefund(
       sandbox: sandboxModeOf(refund),
       transactionId: `${action === 'reject' ? 'refund-rejected' : 'refund-failed'}-${refundId}`,
       provider: refund.payment.provider,
+      merchantEntity: refund.payment.merchantEntity,
+      actorId,
     });
 
     const escrowShare = refundFreezeDebit(entries, refundId, 'ESCROW_HOLD');
@@ -896,6 +919,8 @@ async function resolveRefund(
           paymentId: refund.paymentId,
           sandbox: sandboxModeOf(refund),
           transactionId: `refund-reversal-release-${refundId}`,
+          merchantEntity: refund.payment.merchantEntity,
+          actorId,
         });
       }
     }

@@ -112,6 +112,7 @@ export default function AkunPage() {
       {/* Settings Links */}
       <div className="bg-white mx-4 mt-3 rounded-xl shadow-xs overflow-hidden">
         <SettingsLink label="Donasi Saya" href="/donasi-saya" />
+        <SettingsLink label="Donasi Rutin" href="/akun/donasi-rutin" />
         <SettingsLink label="Galang Dana Saya" href="/akun/kampanye-saya" />
         <SettingsLink label="Volunteer Trip Saya" href="/akun/volunteer-trip" />
         <SettingsLink label="Keikutsertaan Volunteer Saya" href="/akun/volunteer" />

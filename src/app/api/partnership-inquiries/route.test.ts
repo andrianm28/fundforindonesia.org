@@ -1,5 +1,9 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 /**
  * POST /api/partnership-inquiries through the real handler and the real module,
@@ -11,6 +15,7 @@ import { NextRequest } from 'next/server';
  */
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
+  documents: [] as Record<string, unknown>[],
   /** hits per `${scope}:${subjectHash}` bucket; the stand-in for the shared table. */
   buckets: new Map<string, number>(),
   /** when set, the limiter's SQL statements throw this. */
@@ -46,11 +51,21 @@ vi.mock('@/lib/prisma', () => ({
         state.rows.push(row);
         return { ...row };
       },
+      findUnique: async ({ where }: { where: Record<string, unknown> }) =>
+        state.rows.find((r) => r.id === where.id) ?? null,
+    },
+    document: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `doc-${state.documents.length + 1}`, uploadedAt: new Date(), ...data };
+        state.documents.push(row);
+        return row;
+      },
     },
   },
 }));
 
 import { POST } from './route';
+import { MAX_INQUIRY_JSON_SIZE } from '@/lib/inquiry-request';
 
 const URL = 'http://localhost:3000/api/partnership-inquiries';
 
@@ -69,7 +84,12 @@ function post(body: unknown, ip = '203.0.113.9'): Promise<Response> {
   );
 }
 
-beforeEach(() => {
+let documentRoot: string;
+
+beforeEach(async () => {
+  documentRoot = await mkdtemp(join(tmpdir(), 'inquiry-route-'));
+  vi.stubEnv('PRIVATE_DOCUMENT_DIR', documentRoot);
+  state.documents = [];
   state.rows = [];
   state.buckets = new Map();
   state.dbFailure = null;
@@ -79,9 +99,82 @@ beforeEach(() => {
   vi.stubEnv('NODE_ENV', 'test');
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  await rm(documentRoot, { recursive: true, force: true });
+});
+
+const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x31]);
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
+
+/** A multipart submission, as the form posts it when a proposal is attached. */
+function postForm(fields: Record<string, string>, file?: { bytes: Uint8Array; type: string }, ip = '203.0.113.9') {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.set(key, value);
+  if (file) form.set('proposal', new File([file.bytes as BlobPart], 'proposal.pdf', { type: file.type }));
+  return POST(new NextRequest(URL, { method: 'POST', body: form, headers: { 'x-forwarded-for': ip } }));
+}
+
+describe('POST /api/partnership-inquiries with the full form (pks-pemenuhan/17)', () => {
+  it('accepts the budget range, period, address and NPWP, answering 201', async () => {
+    const res = await post({
+      ...VALID,
+      budgetRange: 'OVER_1B',
+      periodStart: '2027-01',
+      periodEnd: '2027-12',
+      companyAddress: 'Jl. Contoh Nomor 1',
+      companyNpwp: '0'.repeat(15),
+    });
+
+    expect(res.status).toBe(201);
+    expect(state.rows[0]).toEqual(
+      expect.objectContaining({ budgetRange: 'OVER_1B', periodStart: '2027-01', periodEnd: '2027-12' }),
+    );
+    expect(JSON.stringify(state.rows[0])).not.toContain('Jl. Contoh');
+  });
+
+  it('answers 400 for an invalid budget range or period, writing nothing', async () => {
+    expect((await post({ ...VALID, budgetRange: 'BANYAK' })).status).toBe(400);
+    expect((await post({ ...VALID, periodStart: '2027-06', periodEnd: '2027-01' })).status).toBe(400);
+    expect(state.rows).toHaveLength(0);
+  });
+
+  it('stores an attached proposal PDF as a private Document of the Inquiry', async () => {
+    const res = await postForm(VALID, { bytes: PDF, type: 'application/pdf' });
+
+    expect(res.status).toBe(201);
+    expect((await res.json()).inquiry.proposalStored).toBe(true);
+    expect(state.documents).toEqual([
+      expect.objectContaining({ partnershipInquiryId: state.rows[0].id, uploadedById: null, contentType: 'application/pdf' }),
+    ]);
+  });
+
+  it('accepts the form without a proposal, as before', async () => {
+    const res = await postForm({ ...VALID, budgetRange: 'UNDER_50M' });
+
+    expect(res.status).toBe(201);
+    expect(state.rows).toHaveLength(1);
+    expect(state.documents).toEqual([]);
+  });
+
+  it('refuses a proposal that is not a PDF with a 400, writing no Inquiry and no file', async () => {
+    const res = await postForm(VALID, { bytes: PNG, type: 'image/png' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('PDF');
+    expect(state.rows).toHaveLength(0);
+    expect(state.documents).toEqual([]);
+  });
+
+  it('keeps the per-client limit counting multipart submissions too', async () => {
+    for (let i = 0; i < 10; i += 1) expect((await postForm(VALID, undefined, '198.51.100.77')).status).toBe(201);
+
+    const refused = await postForm(VALID, undefined, '198.51.100.77');
+
+    expect(refused.status).toBe(429);
+    expect(state.rows).toHaveLength(10);
+  });
 });
 
 describe('POST /api/partnership-inquiries', () => {
@@ -90,13 +183,47 @@ describe('POST /api/partnership-inquiries', () => {
 
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
-      inquiry: expect.objectContaining({
-        programId: 'program-1',
-        companyName: 'PT Sinar Abadi',
-        status: 'NOT_YET_FOLLOWED_UP',
-      }),
+      inquiry: { id: 'inquiry-1', status: 'NEW', proposalStored: false },
     });
     expect(state.rows).toHaveLength(1);
+  });
+
+  it('answers the unauthenticated caller with the id, status and proposalStored only: no ciphertext, HMAC or key id', async () => {
+    const res = await postForm(
+      { ...VALID, companyAddress: 'Jl. Contoh Nomor 1', companyNpwp: '0'.repeat(15) },
+      { bytes: PDF, type: 'application/pdf' },
+    );
+
+    expect(res.status).toBe(201);
+    const text = JSON.stringify(await res.json());
+    expect(JSON.parse(text)).toEqual({ inquiry: { id: expect.any(String), status: 'NEW', proposalStored: true } });
+    expect(text).not.toMatch(/ciphertext|hmac|keyid|rina@|sinar abadi|jl\. contoh/i);
+  });
+
+  it('refuses a JSON body over the size cap with 413, writing nothing', async () => {
+    const res = await post({ ...VALID, needs: 'x'.repeat(MAX_INQUIRY_JSON_SIZE + 1) });
+
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toMatch(/terlalu besar/i);
+    expect(state.rows).toHaveLength(0);
+  });
+
+  it('stops reading a JSON body that lies about its length or sends none, at the cap', async () => {
+    const huge = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(16 * 1024).fill(0x61));
+      },
+    });
+    const res = await POST(
+      new NextRequest(URL, {
+        method: 'POST',
+        body: huge,
+        duplex: 'half',
+        headers: { 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json' },
+      }),
+    );
+
+    expect(res.status).toBe(413);
   });
 
   it('answers 404 for a Program that does not exist, writing nothing', async () => {
@@ -128,8 +255,8 @@ describe('POST /api/partnership-inquiries', () => {
     const res = await post({ ...VALID, status: 'DONE' });
 
     expect(res.status).toBe(201);
-    expect((await res.json()).inquiry.status).toBe('NOT_YET_FOLLOWED_UP');
-    expect(state.rows[0].status).toBe('NOT_YET_FOLLOWED_UP');
+    expect((await res.json()).inquiry.status).toBe('NEW');
+    expect(state.rows[0].status).toBe('NEW');
   });
 
   it('does not let the request choose where the notification goes', async () => {
@@ -211,8 +338,12 @@ describe('POST /api/partnership-inquiries', () => {
 
       expect(res.status).toBe(201);
       expect(state.rows).toHaveLength(0);
-      const body = JSON.stringify(await res.json());
+      const json = await res.json();
+      const body = JSON.stringify(json);
       expect(body).not.toMatch(/fax_ref|website|honeypot|spam|bot/i);
+      // The same keys a real submission gets back, so the two cannot be told apart.
+      expect(Object.keys(json)).toEqual(['inquiry']);
+      expect(Object.keys(json.inquiry).sort()).toEqual(['id', 'proposalStored', 'status']);
     });
 
     it('treats a whitespace-only honeypot as empty, but a non-string value as filled', async () => {

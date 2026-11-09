@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { lookupUserEmail, readUserEmail, sealUserEmail, SELECT_USER_EMAIL } from '@/lib/contact-fields';
+import {
+  lookupUserEmail,
+  readUserEmail,
+  sealUserEmail,
+  sealUserPhone,
+  SELECT_USER_EMAIL,
+} from '@/lib/contact-fields';
+import { nestedConsentCreate } from '@/lib/consent';
+import { normaliseWhatsapp } from '@/lib/whatsapp';
 import { prisma } from '@/lib/prisma';
 import { clientAddress } from '@/lib/client-ip';
 import { guardRoute } from '@/lib/rate-limit-guard';
@@ -13,6 +21,12 @@ import { guardRoute } from '@/lib/rate-limit-guard';
 const registerSchema = z.object({
   name: z.string().min(1, 'Nama harus diisi'),
   email: z.string().email('Format email tidak valid'),
+  /** Opsional (PKS 3.1). Divalidasi dan dinormalkan di bawah, disimpan terenkripsi. */
+  whatsapp: z.string().max(30, 'Nomor WhatsApp terlalu panjang').nullish(),
+  profileType: z.enum(['INDIVIDUAL', 'ORGANISATION']).default('INDIVIDUAL'),
+  // Dua centang wajib (PKS 3.1): ditegakkan di sini, bukan hanya di formulir.
+  acceptTerms: z.literal(true, { message: 'Anda harus menyetujui Syarat Layanan' }),
+  acceptPrivacy: z.literal(true, { message: 'Anda harus menyetujui Kebijakan Privasi' }),
 });
 
 /** Per client per hour. Fail-open: a limiter outage must not close registration. */
@@ -51,7 +65,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email } = result.data;
+    const { name, email, whatsapp, profileType } = result.data;
+
+    const phone = normaliseWhatsapp(whatsapp);
+    if (!phone.ok) {
+      return NextResponse.json(
+        { message: 'Validasi gagal', errors: { whatsapp: phone.message } },
+        { status: 400 }
+      );
+    }
 
     // The duplicate check goes through the lookup HMAC, so it finds the address
     // however it was typed -- including the case the old case-sensitive unique
@@ -76,7 +98,12 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         password: null,
+        profileType,
         ...sealUserEmail(email),
+        ...sealUserPhone(phone.value),
+        // The acceptance is written with the account, in one statement: there
+        // is no account without its record (PKS 3.1, 3.8).
+        consents: nestedConsentCreate(),
       },
       select: { id: true, name: true, ...SELECT_USER_EMAIL },
     });

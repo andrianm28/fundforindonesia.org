@@ -5,9 +5,12 @@ import { DEFAULT_SITE_SETTINGS } from '@/lib/site-settings';
 export function Footer({
   footer = DEFAULT_SITE_SETTINGS.footer,
   social = DEFAULT_SITE_SETTINGS.social,
+  zakatOpen = false,
 }: {
   footer?: SiteSettings['footer'];
   social?: SiteSettings['social'];
+  /** The zakat module is switched on (src/lib/operations.ts); off by default, and then there is no link. */
+  zakatOpen?: boolean;
 }) {
   return (
     <footer className="hidden lg:block bg-bg-secondary border-t border-border mt-auto">
@@ -32,6 +35,7 @@ export function Footer({
               <li><Link href="/about" className="hover:text-primary">Tentang Kami</Link></li>
               <li><Link href="/impact" className="hover:text-primary">Impact &amp; Transparansi</Link></li>
               <li><Link href="/program" className="hover:text-primary">Portofolio CSR</Link></li>
+              {zakatOpen && <li><Link href="/zakat" className="hover:text-primary">Zakat</Link></li>}
               <li><Link href="/wakaf" className="hover:text-primary">Wakaf</Link></li>
               <li><Link href="/hibah" className="hover:text-primary">Hibah</Link></li>
               <li><Link href="/volunteer-trip" className="hover:text-primary">Volunteer</Link></li>

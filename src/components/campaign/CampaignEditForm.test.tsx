@@ -17,11 +17,13 @@ const INITIAL = {
   story: STORY,
   deadline: '2099-12-31',
   coverImage: '/uploads/cover.jpg',
+  galleryImages: ['/uploads/g1-aa.jpg', '/uploads/g2-bb.jpg'],
   collectingEntityId: 'mitra-1',
   province: '32',
   regency: 'Kabupaten Garut',
   beneficiaryDescription: 'Anak yatim',
   beneficiaryCount: '40',
+  beneficiaryRelationship: 'Guru anak-anak itu',
 };
 
 type Call = { url: string; init?: RequestInit };
@@ -92,6 +94,7 @@ describe('CampaignEditForm', () => {
       story: STORY,
       kind: 'DONATION',
       coverImage: '/uploads/cover.jpg',
+      galleryImages: ['/uploads/g1-aa.jpg', '/uploads/g2-bb.jpg'],
       collectingEntityId: 'mitra-1',
       deadline: '2099-12-31T16:59:59.999Z',
     });
@@ -105,6 +108,7 @@ describe('CampaignEditForm', () => {
     expect(screen.getByLabelText('Kabupaten/Kota')).toHaveValue('Kabupaten Garut');
     expect(screen.getByLabelText('Penerima Manfaat')).toHaveValue('Anak yatim');
     expect(screen.getByLabelText('Jumlah Penerima Manfaat')).toHaveValue(40);
+    expect(screen.getByLabelText('Hubungan dengan Penerima Manfaat')).toHaveValue('Guru anak-anak itu');
 
     fireEvent.change(screen.getByLabelText('Provinsi'), { target: { value: '33' } });
     fireEvent.change(screen.getByLabelText('Kabupaten/Kota'), { target: { value: ' Kota Semarang ' } });
@@ -117,6 +121,7 @@ describe('CampaignEditForm', () => {
       regency: 'Kota Semarang',
       beneficiaryDescription: 'Anak yatim',
       beneficiaryCount: 55,
+      beneficiaryRelationship: 'Guru anak-anak itu',
     });
   });
 
@@ -190,15 +195,99 @@ describe('CampaignEditForm', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('"Simpan dan Ajukan" saves, then submits to the Verifier', async () => {
+  it('"Simpan dan Ajukan" saves, then submits to the Verifier with the ticked truth statement', async () => {
     renderForm();
     await screen.findByRole('combobox', { name: 'Collecting Entity' });
 
+    fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Simpan dan Ajukan ke Verifier' }));
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
     const order = calls.filter((c) => c.init?.method).map((c) => `${c.init?.method} ${c.url}`);
     expect(order).toEqual(['PATCH /api/campaigns/sumur', 'POST /api/campaigns/sumur/verification-requests']);
+    const submit = calls.find((c) => c.url === '/api/campaigns/sumur/verification-requests');
+    expect(JSON.parse(String(submit?.init?.body))).toEqual({ truthStatement: true });
+  });
+
+  it('will not save or submit without the truth statement, and says so (PKS pasal 3.3)', async () => {
+    renderForm();
+    await screen.findByRole('combobox', { name: 'Collecting Entity' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan dan Ajukan ke Verifier' }));
+
+    expect(await screen.findByText('Centang pernyataan kebenaran data untuk mengajukan Campaign.')).toBeDefined();
+    expect(calls.filter((c) => c.init?.method)).toEqual([]);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('saves a Draft without the statement: only submitting needs it', async () => {
+    renderForm();
+    await screen.findByRole('combobox', { name: 'Collecting Entity' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
+    expect(calls.some((c) => c.url.endsWith('/verification-requests'))).toBe(false);
+  });
+
+  describe('the gallery (PKS pasal 3.3)', () => {
+    const image = (name: string, type = 'image/png', size = 1000) =>
+      new File([new Uint8Array(size)], name, { type });
+    const pick = (files: File[]) =>
+      fireEvent.change(document.getElementById('gallery-input')!, { target: { files } });
+
+    beforeEach(() => {
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => `blob:${Math.random()}`) }));
+    });
+
+    it('shows what is stored, and removing one sends the shorter list', async () => {
+      renderForm();
+      await screen.findByRole('combobox', { name: 'Collecting Entity' });
+      expect(screen.getAllByAltText('Gambar galeri')).toHaveLength(2);
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Hapus gambar galeri' })[0]);
+      fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }));
+
+      await waitFor(() => expect(patches()).toHaveLength(1));
+      expect(sentBody(patches()[0]).galleryImages).toEqual(['/uploads/g2-bb.jpg']);
+    });
+
+    it('uploads picked files through /api/upload on save and sends their URLs after the stored ones', async () => {
+      renderForm();
+      await screen.findByRole('combobox', { name: 'Collecting Entity' });
+
+      pick([image('a.png')]);
+      fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }));
+
+      await waitFor(() => expect(patches()).toHaveLength(1));
+      expect(calls.filter((c) => c.url === '/api/upload')).toHaveLength(1);
+      expect(sentBody(patches()[0]).galleryImages).toEqual([
+        '/uploads/g1-aa.jpg',
+        '/uploads/g2-bb.jpg',
+        '/uploads/baru.jpg',
+      ]);
+    });
+
+    it('stops at six: a seventh file is refused, and nothing beyond six is kept', async () => {
+      renderForm();
+      await screen.findByRole('combobox', { name: 'Collecting Entity' });
+
+      pick([image('a.png'), image('b.png'), image('c.png'), image('d.png'), image('e.png')]);
+
+      expect(screen.getAllByAltText(/Gambar galeri/)).toHaveLength(6);
+      expect(screen.getByRole('alert').textContent).toBe('Galeri maksimal 6 gambar');
+      expect((screen.getByRole('button', { name: 'Tambah gambar galeri' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('refuses a file that is not an image', async () => {
+      renderForm();
+      await screen.findByRole('combobox', { name: 'Collecting Entity' });
+
+      pick([image('surat.pdf', 'application/pdf')]);
+
+      expect(screen.getByRole('alert').textContent).toBe('File harus berupa gambar');
+      expect(screen.getAllByAltText(/Gambar galeri/)).toHaveLength(2);
+    });
   });
 
   it('keeps the saved edit and says so when the submission is refused', async () => {
@@ -206,6 +295,7 @@ describe('CampaignEditForm', () => {
     renderForm();
     await screen.findByRole('combobox', { name: 'Collecting Entity' });
 
+    fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Simpan dan Ajukan ke Verifier' }));
 
     expect(await screen.findByText(/Perubahan tersimpan, tetapi belum diajukan: Dokumen wajib belum lengkap\./)).toBeDefined();

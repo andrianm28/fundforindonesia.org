@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 import { PaymentProviderNotConfiguredError } from '@/lib/payments';
+import { merchantEntityForPurpose } from '@/lib/payments/merchant';
 import { resolveActivePaymentProvider } from '@/lib/payments/active-provider';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { safePaymentLink } from '@/lib/payments/payment-link';
@@ -22,6 +23,7 @@ import {
   sandboxInProductionReason,
   DONATIONS_DISABLED_MESSAGE,
 } from '@/lib/donations';
+import { donationsSwitchedOff } from '@/lib/operations';
 import { volunteerRegistrationEnabled, VOLUNTEER_DISABLED_MESSAGE } from '@/lib/volunteer/registration-flag';
 
 /**
@@ -67,6 +69,11 @@ export async function POST(
     return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
   }
 
+  // The Admin's switch (src/lib/operations.ts): the same second lock as Donation.
+  if (await donationsSwitchedOff(prisma)) {
+    return NextResponse.json({ error: DONATIONS_DISABLED_MESSAGE }, { status: 503 });
+  }
+
   try {
     const session = await getServerSession();
     if (!session?.user) {
@@ -104,12 +111,20 @@ export async function POST(
       return NextResponse.json({ error: 'Validasi gagal', fieldErrors }, { status: 400 });
     }
 
+    // Which merchant account this Trip Fee goes to (ADR 0027). A Trip Fee is
+    // yayasan money until an Admin can mark a Trip commercial; that flag does not
+    // exist yet, so the routing function is asked without it. When it does, a
+    // commercial Trip resolves BADAN_USAHA here, and with no BADAN_USAHA
+    // credentials the resolve below throws and the charge is refused (503), never
+    // answered by the yayasan's merchant.
+    const merchantEntity = merchantEntityForPurpose({ kind: 'trip_fee' });
     let provider;
     let enabledMethods;
     try {
-      ({ provider, enabledMethods } = await resolveActivePaymentProvider(prisma));
+      ({ provider, enabledMethods } = await resolveActivePaymentProvider(prisma, merchantEntity));
     } catch (err) {
       if (err instanceof PaymentProviderNotConfiguredError) {
+        console.error(`[registrations] payment refused for merchant ${merchantEntity}: ${err.message}`);
         return NextResponse.json(
           { error: 'Kami tidak dapat memproses pembayaran saat ini. Silakan coba lagi nanti.' },
           { status: 503 },
@@ -214,6 +229,7 @@ export async function POST(
           donationId: undefined,
           registrationId: registration.id,
           provider: providerName,
+          merchantEntity,
           method: charge.method,
           providerRef: registration.id,
           amount: tripFeeAmount,

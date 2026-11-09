@@ -29,6 +29,7 @@ export function AdminProviderWithdrawalForm({
 }) {
   const router = useRouter();
   const [provider, setProvider] = useState(providers[0] ?? '');
+  const [merchantEntity, setMerchantEntity] = useState<'YAYASAN' | 'BADAN_USAHA'>('YAYASAN');
   const [reference, setReference] = useState('');
   const [amount, setAmount] = useState('');
   const [destinationName, setDestinationName] = useState('');
@@ -65,6 +66,7 @@ export function AdminProviderWithdrawalForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
+          merchantEntity,
           reference: reference.trim(),
           amount: amountValue,
           destinationName: destinationName.trim(),
@@ -109,6 +111,19 @@ export function AdminProviderWithdrawalForm({
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="block text-sm text-gray-700">
+        Merchant account
+        <select
+          value={merchantEntity}
+          onChange={(e) => setMerchantEntity(e.target.value as 'YAYASAN' | 'BADAN_USAHA')}
+          className={inputClass}
+        >
+          <option value="YAYASAN">YAYASAN (donasi, zakat, wakaf)</option>
+          <option value="BADAN_USAHA">BADAN_USAHA (pendapatan komersial)</option>
+        </select>
+        <span className={hintClass}>Dashboard yang dibaca saldonya. Setiap merchant punya saldo dan rekonsiliasinya sendiri.</span>
       </label>
 
       <label className="block text-sm text-gray-700">

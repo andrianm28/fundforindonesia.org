@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 import { partnerOrganisationRoute } from "@/lib/partner-organisation-route";
-import { registerPartnerOrganisation } from "@/lib/partner-organisations";
+import { registerPartnerOrganisation, toRegisterView } from "@/lib/partner-organisations";
 
 /**
  * Every Partner Organisation with its linked account, permits, Kind
@@ -29,7 +29,7 @@ export const GET = partnerOrganisationRoute(
     // stored, not what is shown).
     return NextResponse.json({
       organisations: organisations.map(({ fundraiser, ...organisation }) => ({
-        ...organisation,
+        ...toRegisterView(organisation),
         fundraiser: { name: fundraiser.name, email: readUserEmail(fundraiser) },
       })),
     });
@@ -39,7 +39,8 @@ export const GET = partnerOrganisationRoute(
 
 /**
  * A Verifier registers a Partner Organisation after checking its legal
- * documents: `{ name, fundraiserEmail, acceptsIndividualCampaigns }`.
+ * documents: `{ name, fundraiserEmail, acceptsIndividualCampaigns, address,
+ * responsiblePersonName, responsiblePersonTitle, responsiblePersonPhone }`.
  */
 export const POST = partnerOrganisationRoute(async ({ actorId, body }) => {
   const organisation = await registerPartnerOrganisation(prisma, {
@@ -47,6 +48,10 @@ export const POST = partnerOrganisationRoute(async ({ actorId, body }) => {
     name: body.name,
     fundraiserEmail: body.fundraiserEmail,
     acceptsIndividualCampaigns: body.acceptsIndividualCampaigns,
+    address: body.address,
+    responsiblePersonName: body.responsiblePersonName,
+    responsiblePersonTitle: body.responsiblePersonTitle,
+    responsiblePersonPhone: body.responsiblePersonPhone,
   });
-  return NextResponse.json({ organisation }, { status: 201 });
+  return NextResponse.json({ organisation: toRegisterView(organisation) }, { status: 201 });
 });

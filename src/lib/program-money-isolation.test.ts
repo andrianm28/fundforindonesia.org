@@ -143,7 +143,7 @@ describe('Program money isolation (ticket 01)', () => {
  * an Inquiry is not a Campaign, so it must reach none of it either.
  */
 describe('PartnershipInquiry money isolation (ticket 05)', () => {
-  it('points at one Program and, optionally, one Company, plus the log of its own follow-up steps', () => {
+  it('points at one Program, optionally one Company and one PIC, plus the log of its own follow-up steps', () => {
     const inquiry = uncommented(blockOf('model', 'PartnershipInquiry'));
 
     expect(inquiry).toMatch(/programId\s+String/);
@@ -152,10 +152,14 @@ describe('PartnershipInquiry money isolation (ticket 05)', () => {
     // which is a list of its own log, not a foreign key to anything else, and
     // so carries no @relation of its own. E9/01 tahap 2 added the second
     // @relation: the optional Company a Tim CSR member filed it for. A Company
-    // is a name and an email domain, never money.
-    expect(inquiry.match(/@relation/g)).toHaveLength(2);
+    // is a name and an email domain, never money. pks-pemenuhan/17 added the
+    // third: the optional PIC, an Admin User who owns the follow-up -- a person,
+    // never an account that holds money. The proposal PDF is a Document that
+    // points AT the Inquiry (`documents Document[]`), so it adds no @relation here.
+    expect(inquiry.match(/@relation/g)).toHaveLength(3);
     expect(inquiry).toMatch(/program\s+Program\s+@relation/);
     expect(inquiry).toMatch(/company\s+Company\?\s+@relation/);
+    expect(inquiry).toMatch(/pic\s+User\?\s+@relation/);
     expect(uncommented(blockOf('model', 'Company'))).not.toMatch(/amount|balance|kind|escrow|ledger/i);
     expect(inquiry).toMatch(/statusChanges\s+PartnershipInquiryStatusChange\[\]/);
   });
@@ -173,14 +177,17 @@ describe('PartnershipInquiry money isolation (ticket 05)', () => {
     expect(inquiry).not.toMatch(/amount|balance|kind|escrow|ledger/i);
   });
 
-  it('starts every Inquiry at not-yet-followed-up', () => {
-    expect(blockOf('model', 'PartnershipInquiry')).toMatch(
-      /status\s+PartnershipInquiryStatus\s+@default\(NOT_YET_FOLLOWED_UP\)/,
-    );
+  it('starts every Inquiry at Baru, with the eight stages of PKS Pasal 3.6', () => {
+    expect(blockOf('model', 'PartnershipInquiry')).toMatch(/status\s+PartnershipInquiryStatus\s+@default\(NEW\)/);
     expect(enumValues(blockOf('enum', 'PartnershipInquiryStatus'))).toEqual([
-      'NOT_YET_FOLLOWED_UP',
-      'IN_PROGRESS',
+      'NEW',
+      'CONTACTED',
+      'PROPOSAL',
+      'NEGOTIATION',
+      'APPROVED',
+      'ONGOING',
       'DONE',
+      'DROPPED',
     ]);
   });
 });
@@ -192,12 +199,16 @@ describe('PartnershipInquiry money isolation (ticket 05)', () => {
  * nothing may turn a logged follow-up into money moved.
  */
 describe('PartnershipInquiryStatusChange money isolation (ticket 06)', () => {
-  it('names only the Inquiry it belongs to and the person who moved it', () => {
+  it('names only the Inquiry it belongs to, the person who moved it and the PICs it moved between', () => {
     const change = uncommented(blockOf('model', 'PartnershipInquiryStatusChange'));
 
     expect(change).toMatch(/inquiry\s+PartnershipInquiry\s+@relation/);
     expect(change).toMatch(/actedBy\s+User\s+@relation/);
-    expect(change.match(/@relation/g)).toHaveLength(2);
+    // pks-pemenuhan/17: a change may also record the PIC it took the Inquiry from
+    // and gave it to -- two more people, still no money.
+    expect(change).toMatch(/picFrom\s+User\?\s+@relation/);
+    expect(change).toMatch(/picTo\s+User\?\s+@relation/);
+    expect(change.match(/@relation/g)).toHaveLength(4);
     expect(change).not.toMatch(/amount|balance|escrow|ledger/i);
     // A follow-up records who and when; it decides nothing on its own.
     expect(change).not.toMatch(/kind|program|capacity|reason/i);
@@ -206,6 +217,10 @@ describe('PartnershipInquiryStatusChange money isolation (ticket 06)', () => {
   it('never loses a follow-up to a delete of the Inquiry or of the person', () => {
     const change = blockOf('model', 'PartnershipInquiryStatusChange');
 
+    // The Inquiry and the actor are never deleted out from under the log. The
+    // two PIC pointers are only names for display and may be cleared to null
+    // when that person is removed; the row itself, with who acted and when, stays.
     expect(change.match(/onDelete: Restrict/g)).toHaveLength(2);
+    expect(change.match(/onDelete: SetNull/g)).toHaveLength(2);
   });
 });

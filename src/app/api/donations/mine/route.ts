@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { claimGuestDonations } from "@/lib/guest-donation-claim";
+import { supportedCampaignsForDonor } from "@/lib/donation-summaries";
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
   // claim it writes nothing, and for an unverified account it reads one row.
   const { verified: emailVerified } = await claimGuestDonations(session.user.id);
 
-  const [donations, total] = await Promise.all([
+  const [donations, total, supportedCampaigns] = await Promise.all([
     prisma.donation.findMany({
       where: { donorId: session.user.id },
       orderBy: { createdAt: "desc" },
@@ -60,6 +61,8 @@ export async function GET(request: NextRequest) {
     prisma.donation.count({
       where: { donorId: session.user.id },
     }),
+    // PKS 3.8: each Campaign once, with the total of settled Donations only.
+    supportedCampaignsForDonor(prisma, session.user.id),
   ]);
 
   const totalPages = Math.ceil(total / limit);
@@ -72,6 +75,7 @@ export async function GET(request: NextRequest) {
     })),
     total,
     emailVerified,
+    supportedCampaigns,
     page,
     limit,
     totalPages,

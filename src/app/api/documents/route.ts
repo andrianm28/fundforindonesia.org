@@ -3,6 +3,7 @@ import { getServerSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { guardRoute } from '@/lib/rate-limit-guard';
 import { DocumentRefusedError, MAX_DOCUMENT_SIZE, uploadDocument, type DocumentTarget } from '@/lib/documents';
+import { readCappedBody as readCapped } from '@/lib/inquiry-request';
 
 /** Documents per account per hour. */
 const DOCUMENT_UPLOAD_LIMIT = 30;
@@ -10,37 +11,12 @@ const DOCUMENT_UPLOAD_WINDOW_SECONDS = 60 * 60;
 /** The file plus room for the multipart framing and the other fields. */
 const MAX_BODY_SIZE = MAX_DOCUMENT_SIZE + 64 * 1024;
 
-/** The request body, or 'too-large' as soon as it passes `cap` bytes. */
-async function readCapped(request: NextRequest, cap: number): Promise<Uint8Array<ArrayBuffer> | 'too-large'> {
-  if (Number(request.headers.get('content-length') ?? '0') > cap) return 'too-large';
-  if (!request.body) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > cap) {
-      await reader.cancel().catch(() => undefined);
-      return 'too-large';
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
-}
-
 /**
  * Uploads one private document (ticket 64): multipart with `file` and either
  * `campaignId` + `checklistItemId` (the Campaign's Fundraiser, for a §7.1
  * item) or `partnerOrganisationId` + `label` (a Verifier or Admin, for an
- * organisation's legal document). Answers the stored document's summary; there
+ * organisation's legal document), or `payoutId` + `label` (the Fundraiser who
+ * requested a Payout, for a supporting paper, PKS Pasal 4.5). Answers the stored document's summary; there
  * is no URL to answer with, because the only way to read it is
  * GET /api/documents/[id] under the ACL.
  *
@@ -88,15 +64,19 @@ export async function POST(request: NextRequest) {
   const campaignId = form.get('campaignId');
   const checklistItemId = form.get('checklistItemId');
   const partnerOrganisationId = form.get('partnerOrganisationId');
+  const payoutId = form.get('payoutId');
   let target: DocumentTarget;
-  if (typeof campaignId === 'string' && campaignId && typeof checklistItemId === 'string' && checklistItemId) {
+  if (typeof payoutId === 'string' && payoutId && !campaignId && !partnerOrganisationId) {
+    const label = form.get('label');
+    target = { payoutId, label: typeof label === 'string' ? label : '' };
+  } else if (typeof campaignId === 'string' && campaignId && typeof checklistItemId === 'string' && checklistItemId) {
     target = { campaignId, checklistItemId };
   } else if (typeof partnerOrganisationId === 'string' && partnerOrganisationId && !campaignId) {
     const label = form.get('label');
     target = { partnerOrganisationId, label: typeof label === 'string' ? label : '' };
   } else {
     return NextResponse.json(
-      { error: 'Sebutkan Campaign dan jenis dokumen, atau Lembaga Mitra.' },
+      { error: 'Sebutkan Campaign dan jenis dokumen, Lembaga Mitra, atau Pencairan.' },
       { status: 400 },
     );
   }

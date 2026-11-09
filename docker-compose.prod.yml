@@ -84,6 +84,15 @@ services:
       SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
       SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
       SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      # Two Merchant Accounts at the one gateway (ADR 0027). SUMOPOD_YAYASAN_* falls back to the
+      # three SUMOPOD_* names above, so production is unchanged until these are set.
+      # SUMOPOD_BADAN_USAHA_* has NO fallback: empty refuses commercial charges.
+      SUMOPOD_YAYASAN_API_KEY: ${SUMOPOD_YAYASAN_API_KEY:-}
+      SUMOPOD_YAYASAN_WEBHOOK_SECRET: ${SUMOPOD_YAYASAN_WEBHOOK_SECRET:-}
+      SUMOPOD_YAYASAN_BASE_URL: ${SUMOPOD_YAYASAN_BASE_URL:-}
+      SUMOPOD_BADAN_USAHA_API_KEY: ${SUMOPOD_BADAN_USAHA_API_KEY:-}
+      SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET: ${SUMOPOD_BADAN_USAHA_WEBHOOK_SECRET:-}
+      SUMOPOD_BADAN_USAHA_BASE_URL: ${SUMOPOD_BADAN_USAHA_BASE_URL:-}
       # Public beta marker (ticket rilis-1-benda/92), read by the server per
       # call (not NEXT_PUBLIC_): exactly "true" makes the money path accept
       # ONLY the Sumopod sandbox, shows the "no real money" banner, and stamps

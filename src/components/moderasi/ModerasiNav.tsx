@@ -16,6 +16,7 @@ const ITEMS: readonly Item[] = [
   { href: "/moderasi/rekening", label: "Rekening", mobileLabel: "Rekening", icon: "campaign" },
   { href: "/moderasi/kind-authorisations", label: "Kind Authorisation", mobileLabel: "Kind Auth.", icon: "campaign" },
   { href: "/moderasi/volunteer-trips", label: "Volunteer Trip", mobileLabel: "Trip", icon: "campaign" },
+  { href: "/moderasi/doa", label: "Doa", mobileLabel: "Doa", icon: "campaign" },
 ];
 
 const HREFS = ITEMS.map((i) => i.href);

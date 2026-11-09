@@ -2,12 +2,23 @@ import { MockPaymentProvider } from './mock-provider';
 import { SumopodProvider } from './sumopod-provider';
 import type { PaymentProvider } from './types';
 import { canonicalPaymentProviderName, type PaymentProviderName } from './provider-names';
+import { firstSetEnv, merchantEnvKeys, type MerchantEntity } from './merchant';
 
 export {
   canonicalPaymentProviderName,
   UnknownPaymentProviderError,
   type PaymentProviderName,
 } from './provider-names';
+export {
+  canonicalMerchantEntity,
+  merchantEntityForPurpose,
+  merchantFromUrlSegment,
+  merchantUrlSegment,
+  MERCHANT_ENTITIES,
+  UnknownMerchantEntityError,
+  type MerchantEntity,
+  type MerchantPurpose,
+} from './merchant';
 export { computeMidtransSignature, verifyMidtransSignature } from './signature';
 export {
   computeSumopodSignature,
@@ -51,6 +62,19 @@ function requireEnv(key: string): string {
 }
 
 /**
+ * The first of `keys` that is set (non-empty). When none is, the error names
+ * the PRIMARY (first) key and the merchant, so the message for a commercial
+ * charge says SUMOPOD_BADAN_USAHA_API_KEY, never the legacy yayasan name.
+ */
+function requireMerchantEnv(keys: string[], merchant: MerchantEntity): string {
+  const found = firstSetEnv(keys);
+  if (found) return found.value;
+  throw new PaymentProviderNotConfiguredError(
+    `${keys[0]} (credentials of the ${merchant} merchant account; a ${merchant} charge is refused, never moved to another merchant)`,
+  );
+}
+
+/**
  * The mock adapter's own gate (ticket 51). The mock does verify an HMAC
  * signature with its serverKey (mock-provider.ts:120-130), but anyone holding
  * that key can forge a valid event, and the key is the kind of variable
@@ -88,17 +112,26 @@ function requireMockAllowed(): void {
  * for a name that is not registered, is a compile error rather than a name
  * that resolves to no adapter at all.
  */
-const BUILDERS: Record<PaymentProviderName, () => PaymentProvider> = {
+const BUILDERS: Record<PaymentProviderName, (merchant: MerchantEntity) => PaymentProvider> = {
   mock: () => {
     requireMockAllowed();
+    // The mock has no merchant accounts: it never moves money and is refused in
+    // production, so both entities share its one key (development only).
     return new MockPaymentProvider({ serverKey: requireEnv('MOCK_MIDTRANS_SERVER_KEY') });
   },
-  sumopod: () =>
-    new SumopodProvider({
-      apiKey: requireEnv('SUMOPOD_API_KEY'),
-      webhookSecret: requireEnv('SUMOPOD_WEBHOOK_SECRET'),
-      baseUrl: requireEnv('SUMOPOD_BASE_URL'),
-    }),
+  // One gateway, two merchant accounts (ADR 0027): credentials and the webhook
+  // secret are per merchant. YAYASAN falls back to the pre-ADR variable names so
+  // production keeps working until the owner sets SUMOPOD_YAYASAN_*;
+  // BADAN_USAHA has no fallback at all.
+  sumopod: (merchant) => {
+    const keys = merchantEnvKeys(merchant);
+    return new SumopodProvider({
+      merchant,
+      apiKey: requireMerchantEnv(keys.apiKey, merchant),
+      webhookSecret: requireMerchantEnv(keys.webhookSecret, merchant),
+      baseUrl: requireMerchantEnv(keys.baseUrl, merchant),
+    });
+  },
 };
 
 /**
@@ -113,7 +146,7 @@ const BUILDERS: Record<PaymentProviderName, () => PaymentProvider> = {
  * not be the provider currently taking new charges -- a payment made before
  * a provider switch still settles afterwards.
  */
-export function getPaymentProvider(name?: string): PaymentProvider {
+export function getPaymentProvider(name?: string, merchant: MerchantEntity = 'YAYASAN'): PaymentProvider {
   const requested = name === undefined ? (process.env.PAYMENT_PROVIDER ?? 'mock') : name;
-  return BUILDERS[canonicalPaymentProviderName(requested)]();
+  return BUILDERS[canonicalPaymentProviderName(requested)](merchant);
 }

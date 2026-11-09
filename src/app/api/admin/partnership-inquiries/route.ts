@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Assignment } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { withHiddenAssignmentCheck } from "@/lib/withAssignmentCheck";
-import { listPartnershipInquiries } from "@/lib/partnership-inquiry-followup";
+import { listPartnershipInquiries, listPartnershipPicCandidates } from "@/lib/partnership-inquiry-followup";
 
 /**
  * GET /api/admin/partnership-inquiries (ticket 06): the partnership team's
@@ -21,8 +21,14 @@ import { listPartnershipInquiries } from "@/lib/partnership-inquiry-followup";
  * a follow-up status nobody can see is not a follow-up. An empty queue answers
  * an empty list, not a refusal: no company has enquired yet is a fact about the
  * portfolio, not an error.
+ *
+ * pks-pemenuhan/17: the answer also carries `pics`, the Admin users who may be
+ * named PIC, so the pipeline can offer them without a second door.
  */
 export const GET = withHiddenAssignmentCheck(Assignment.ADMIN, async (): Promise<NextResponse> => {
-  const inquiries = await listPartnershipInquiries(prisma);
-  return NextResponse.json({ inquiries });
+  const [inquiries, pics] = await Promise.all([
+    listPartnershipInquiries(prisma),
+    listPartnershipPicCandidates(prisma),
+  ]);
+  return NextResponse.json({ inquiries, pics });
 });

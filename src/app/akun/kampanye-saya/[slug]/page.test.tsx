@@ -32,6 +32,8 @@ const CAMPAIGN = {
   title: 'Sumur Desa',
   story: 'Cerita yang cukup panjang untuk lolos dari batas minimal lima puluh karakter itu.',
   coverImage: '/uploads/cover.jpg',
+  galleryImages: ['/uploads/g1-aa.jpg'],
+  rejectionFinal: false,
   kind: 'DONATION',
   targetAmount: 50_000_000,
   category: 'bencana-alam',
@@ -89,6 +91,30 @@ describe('the Fundraiser manage page', () => {
     expect((screen.getByLabelText(/Batas Waktu/) as HTMLInputElement).value).toBe('2099-12-31');
     expect(screen.getByTestId('edit-category').textContent).toContain('Bencana Alam');
     expect(screen.queryByRole('button', { name: 'Ajukan Perubahan' })).toBeNull();
+  });
+
+  it('shows the stored gallery in the edit form, and badges a revisable rejection Perlu revisi (PKS pasal 3.3, 3.4)', async () => {
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({ ...CAMPAIGN, lifecycleStatus: 'REJECTED' } as never);
+
+    render(await page());
+
+    expect(screen.getAllByAltText('Gambar galeri')).toHaveLength(1);
+    expect(screen.getByText('Perlu revisi')).toBeDefined();
+  });
+
+  it('closes the edit form on a Campaign rejected for good: badge Ditolak, nothing to edit or resubmit (PKS pasal 3.4)', async () => {
+    vi.mocked(prisma.campaign.findUnique).mockResolvedValue({
+      ...CAMPAIGN,
+      lifecycleStatus: 'REJECTED',
+      rejectionFinal: true,
+    } as never);
+
+    render(await page());
+
+    expect(screen.getByText('Ditolak')).toBeDefined();
+    expect(screen.getByTestId('manage-not-editable').textContent).toContain('ditolak secara final');
+    expect(screen.queryByRole('button', { name: 'Simpan Perubahan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Simpan dan Ajukan ke Verifier' })).toBeNull();
   });
 
   it('offers the change request form for an Active Campaign, not the edit form', async () => {

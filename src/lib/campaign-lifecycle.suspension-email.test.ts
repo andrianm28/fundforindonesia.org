@@ -51,7 +51,7 @@ describe('Suspension emails', () => {
 
     expect(mailer.sent).toHaveLength(1);
     expect(mailer.sent[0]).toMatchObject({ to: 'siti@example.test' });
-    expect(mailer.sent[0].subject).toContain('dibekukan');
+    expect(mailer.sent[0].subject).toContain('ditangguhkan');
     expect(mailer.sent[0].text).toContain('Alasan: Laporan penipuan terverifikasi');
   });
 

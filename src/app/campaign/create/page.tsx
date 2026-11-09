@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CreateCampaignStepIndicator } from '@/components/campaign/CreateCampaignStepIndicator';
-import { submitToVerifier } from '@/lib/verification-submission';
+import { submitToVerifier, TRUTH_STATEMENT_REQUIRED } from '@/lib/verification-submission';
 import { formatWibLongDate } from '@/lib/utils/date';
 import { KIND_LABEL, type CampaignKind } from '@/lib/campaign-kind';
 import {
@@ -30,6 +30,8 @@ import { CampaignDeadlineField } from '@/components/campaign/CampaignDeadlineFie
 import { CoverImageField } from '@/components/campaign/CoverImageField';
 import { CampaignStoryField } from '@/components/campaign/CampaignStoryField';
 import { CampaignLocationFields } from '@/components/campaign/CampaignLocationFields';
+import { GalleryImagesField, useGalleryDraft } from '@/components/campaign/GalleryImagesField';
+import { TruthStatementField } from '@/components/campaign/TruthStatementField';
 import { campaignLocationLabel } from '@/lib/campaign-location';
 import { DOCUMENT_ACCEPT } from '@/components/documents/DocumentUpload';
 
@@ -88,6 +90,8 @@ export default function CampaignCreatePage() {
   const [documentFiles, setDocumentFiles] = useState<Record<string, File>>({});
   const [uploadedItems, setUploadedItems] = useState<ReadonlySet<string>>(new Set());
   const [submitError, setSubmitError] = useState('');
+  const gallery = useGalleryDraft();
+  const [truthStatement, setTruthStatement] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   // Who may collect this Campaign's money (ADR 0010): null while loading.
   const [sponsorOptions, setSponsorOptions] = useState<SponsorOptions | null>(null);
@@ -253,11 +257,14 @@ export default function CampaignCreatePage() {
     // or a blob/data URL would be refused by the API (coverImageSchema).
     if (!formData.coverImage) throw new Error('Gambar sampul wajib diunggah.');
     const coverImageUrl = await uploadCoverImage(formData.coverImage);
+    // The gallery goes up the same way, and a failed upload stops the save too.
+    const galleryImages = await gallery.resolve();
 
     const amount = parseRupiahInput(formData.targetAmount);
     const payload = {
       ...contentPayload(formData),
       coverImage: coverImageUrl,
+      galleryImages,
       targetAmount: amount,
       category: formData.category,
       kind: formData.kind,
@@ -313,8 +320,14 @@ export default function CampaignCreatePage() {
    * lands on their Campaigns, where a Draft can be submitted later.
    */
   async function handleSave(action: 'draft' | 'submit') {
-    setPendingAction(action);
     setSubmitError('');
+    // Asked before anything is created or uploaded: the server refuses the
+    // submission without the statement, which would leave a Draft behind.
+    if (action === 'submit' && !truthStatement) {
+      setSubmitError(TRUTH_STATEMENT_REQUIRED);
+      return;
+    }
+    setPendingAction(action);
 
     let created = false;
     try {
@@ -322,7 +335,7 @@ export default function CampaignCreatePage() {
       created = true;
       await uploadDocuments(id);
       if (action === 'submit') {
-        const refused = await submitToVerifier(slug);
+        const refused = await submitToVerifier(slug, truthStatement);
         if (refused) throw new Error(refused);
       }
       router.push('/akun/kampanye-saya');
@@ -468,6 +481,8 @@ export default function CampaignCreatePage() {
                 onError={(coverImage) => setErrors((prev) => ({ ...prev, coverImage }))}
                 onClear={() => setFormData((prev) => ({ ...prev, coverImage: null, coverImagePreview: '' }))}
               />
+
+              <GalleryImagesField draft={gallery} />
 
               <CampaignStoryField
                 value={formData.story}
@@ -616,6 +631,15 @@ export default function CampaignCreatePage() {
                   )}
                 </div>
               )}
+
+              <TruthStatementField
+                checked={truthStatement}
+                onChange={(checked) => {
+                  setTruthStatement(checked);
+                  if (checked) setSubmitError('');
+                }}
+                disabled={pendingAction !== null}
+              />
 
               <div className="flex gap-3 pt-4">
                 {/* Once the Draft exists, edits here would not reach it. */}

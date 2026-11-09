@@ -85,6 +85,17 @@ describe('GET /api/campaigns', () => {
     expect(data.totalPages).toBe(1);
   });
 
+  it('asks for the listing without the columns only the Verifier and the Fundraiser see', async () => {
+    mockFindMany.mockResolvedValue([] as never);
+    mockCount.mockResolvedValue(0);
+
+    await GET(createRequest('http://localhost:3000/api/campaigns'));
+
+    expect(mockFindMany.mock.calls[0][0]).toMatchObject({
+      omit: { beneficiaryRelationship: true, rejectionFinal: true },
+    });
+  });
+
   describe('progress and the beta (ticket rilis-1-benda/92)', () => {
     const row = { id: 'c1', slug: 'c1', title: 'C1', collectedAmount: 500_000, creator: { name: 'x' } };
     const mockPaymentFindMany = vi.mocked(prisma.payment.findMany);
@@ -357,6 +368,40 @@ describe('POST /api/campaigns', () => {
     expect(data.lifecycleStatus).toBe('DRAFT');
   });
 
+  describe('the gallery (PKS pasal 3.3)', () => {
+    const upload = (n: number) => `/uploads/lx${n}-abc${n}.jpg`;
+
+    it('stores up to six gallery images beside the cover, and none when the form sends none', async () => {
+      mockGetServerSession.mockResolvedValue(verifiedSession as never);
+      mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+      await POST(createPostRequest({ ...validBody, galleryImages: [1, 2, 3, 4, 5, 6].map(upload) }));
+      await POST(createPostRequest(validBody));
+
+      expect(mockCreate.mock.calls[0][0].data.galleryImages).toEqual([1, 2, 3, 4, 5, 6].map(upload));
+      expect(mockCreate.mock.calls[1][0].data.galleryImages).toEqual([]);
+    });
+
+    it('refuses a seventh image with 400 on galleryImages and creates nothing', async () => {
+      mockGetServerSession.mockResolvedValue(verifiedSession as never);
+
+      const response = await POST(createPostRequest({ ...validBody, galleryImages: [1, 2, 3, 4, 5, 6, 7].map(upload) }));
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).fieldErrors.galleryImages).toEqual(['Galeri maksimal 6 gambar']);
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a gallery entry that is not an upload path or an https URL', async () => {
+      mockGetServerSession.mockResolvedValue(verifiedSession as never);
+
+      const response = await POST(createPostRequest({ ...validBody, galleryImages: ['javascript:alert(1)'] }));
+
+      expect(response.status).toBe(400);
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+  });
+
   it('keeps the beneficiary name the duplicate hints are matched on (prd-compliance 14)', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
@@ -404,6 +449,16 @@ describe('POST /api/campaigns', () => {
     });
   });
 
+  it('stores how the Fundraiser relates to the beneficiary (PKS 3.2), trimmed', async () => {
+    mockGetServerSession.mockResolvedValue(verifiedSession as never);
+    mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
+
+    const response = await POST(createPostRequest({ ...validBody, beneficiaryRelationship: '  Guru kelas anak itu ' }));
+
+    expect(response.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].data.beneficiaryRelationship).toBe('Guru kelas anak itu');
+  });
+
   it('stores null for the location fields when none are given', async () => {
     mockGetServerSession.mockResolvedValue(verifiedSession as never);
     mockCreate.mockResolvedValue({ id: 'campaign-2' } as never);
@@ -415,6 +470,7 @@ describe('POST /api/campaigns', () => {
       regency: null,
       beneficiaryDescription: null,
       beneficiaryCount: null,
+      beneficiaryRelationship: null,
     });
   });
 
@@ -423,6 +479,7 @@ describe('POST /api/campaigns', () => {
     ['province', { province: 'Jawa Barat' }],
     ['regency', { regency: 'a'.repeat(101) }],
     ['beneficiaryDescription', { beneficiaryDescription: 'a'.repeat(201) }],
+    ['beneficiaryRelationship', { beneficiaryRelationship: 'a'.repeat(201) }],
     ['beneficiaryCount', { beneficiaryCount: 0 }],
     ['beneficiaryCount', { beneficiaryCount: -5 }],
     ['beneficiaryCount', { beneficiaryCount: 1.5 }],

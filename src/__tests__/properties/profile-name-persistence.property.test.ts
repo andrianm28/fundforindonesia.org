@@ -100,7 +100,7 @@ describe("Feature: platform-polish, Property 2: Profile Name Persistence", () =>
         expect(mockedPrisma.user.update).toHaveBeenCalledWith({
           where: { id: "user-123" },
           data: { name },
-          select: { id: true, name: true, avatar: true, ...SELECT_USER_EMAIL },
+          select: expect.objectContaining({ id: true, name: true, avatar: true, ...SELECT_USER_EMAIL }),
         });
       }),
       { numRuns: 100 }

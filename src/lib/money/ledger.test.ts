@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fc from 'fast-check';
 import {
-  postTransaction,
+  postTransaction as postTransactionStrict,
   campaignBalance,
   escrowBalance,
   tripBalance,
@@ -32,6 +32,18 @@ import {
 } from './ledger';
 import { canonicalPaymentProviderName } from '@/lib/payments/provider-names';
 import { ledgerGroupBy } from '../../../tests/support/ledger-group-by';
+
+/**
+ * These tests are about legs, balances and idempotency, not about which merchant
+ * a posting belongs to, so they post as YAYASAN unless a test says otherwise.
+ * That the entity is REQUIRED, stamped on every leg and checked at runtime is
+ * ledger.merchant.test.ts's job (pks-pemenuhan/04).
+ */
+const postTransaction = (
+  tx: Parameters<typeof postTransactionStrict>[0],
+  legs: Parameters<typeof postTransactionStrict>[1],
+  options: Partial<Parameters<typeof postTransactionStrict>[2]> = {},
+) => postTransactionStrict(tx, legs, { merchantEntity: 'YAYASAN', ...options });
 
 /**
  * A Payment Provider name written onto something in this file, in any quote

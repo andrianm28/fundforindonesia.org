@@ -18,7 +18,13 @@ vi.mock('@/lib/prisma', () => ({
 
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
 
+// PKS 3.9: the aggregation has its own tests in src/lib/donation-summaries.test.ts.
+vi.mock('@/lib/donation-summaries', () => ({
+  incomeSummaryForFundraiser: vi.fn().mockResolvedValue({ total: 0, perCampaign: [] }),
+}));
+
 import { getServerSession } from '@/lib/auth';
+import { incomeSummaryForFundraiser } from '@/lib/donation-summaries';
 import { GET } from './route';
 
 const NOW = new Date('2026-09-25T12:00:00Z');
@@ -70,6 +76,29 @@ describe('GET /api/user/campaigns', () => {
     const pending = Object.fromEntries((await fetchMine()).map((c) => [c.slug, c.pendingVerificationRequestId]));
 
     expect(pending).toEqual({ waiting: 'open', refused: null });
+  });
+
+  it('sends whether a Rejected Campaign was closed for good, so the list can read Ditolak and stop offering a resubmission (PKS pasal 3.4)', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaignRow({ id: 'revisi', slug: 'revisi', lifecycleStatus: 'REJECTED', rejectionFinal: false }),
+        campaignRow({ id: 'final', slug: 'final', lifecycleStatus: 'REJECTED', rejectionFinal: true }),
+      ],
+    });
+
+    const closed = Object.fromEntries((await fetchMine()).map((c) => [c.slug, c.rejectionFinal]));
+
+    expect(closed).toEqual({ revisi: false, final: true });
+  });
+
+  it("sends the Fundraiser's income summary, asked for this Fundraiser only (PKS 3.9)", async () => {
+    const income = { total: 9, perCampaign: [{ campaignId: 'running', slug: 'running', title: 'R', totalAmount: 9, donationCount: 1 }] };
+    vi.mocked(incomeSummaryForFundraiser).mockResolvedValueOnce(income);
+
+    const response = await GET(new NextRequest('http://localhost:3000/api/user/campaigns'));
+
+    expect((await response.json()).income).toEqual(income);
+    expect(vi.mocked(incomeSummaryForFundraiser).mock.calls.at(-1)?.[1]).toBe('creator-1');
   });
 
   it('sends no legacy status field', async () => {

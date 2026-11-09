@@ -10,6 +10,8 @@ import { publicUrl } from "@/lib/public-url";
 import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
 import { prisma } from "@/lib/prisma";
 import { resolveSiteSettingsOrDefaults } from "@/lib/site-settings";
+import { resolveOperationsOrDefaults, MAINTENANCE_DEFAULT_MESSAGE } from "@/lib/operations";
+import { MaintenanceBanner } from "@/components/layout/MaintenanceBanner";
 
 // Self-hosted, not next/font/google: the Docker build has no reliable route
 // to fonts.googleapis.com, so a build-time fetch there is a build that can
@@ -60,6 +62,7 @@ export default async function RootLayout({
 }>) {
   const betaSandbox = await betaSandboxForThisRequest();
   const { footer, social } = await resolveSiteSettingsOrDefaults(prisma);
+  const { maintenance, zakat } = await resolveOperationsOrDefaults(prisma);
 
   return (
     <html lang="id">
@@ -67,8 +70,9 @@ export default async function RootLayout({
         <Providers>
           <BetaSandboxProvider active={betaSandbox}>
             {betaSandbox && <BetaBanner variant="site" />}
+            {maintenance.on && <MaintenanceBanner message={maintenance.message || MAINTENANCE_DEFAULT_MESSAGE} />}
             <AppShell>{children}</AppShell>
-            <ConditionalFooter footer={footer} social={social} />
+            <ConditionalFooter footer={footer} social={social} zakatOpen={zakat.enabled} />
           </BetaSandboxProvider>
         </Providers>
       </body>

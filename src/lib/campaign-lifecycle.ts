@@ -142,13 +142,15 @@ async function transition(
     actorId: string | null;
     capacity: StatusChangeCapacity;
     reason?: string | null;
+    /** A rejection the Verifier made for good (PKS pasal 3.4); recorded on the change and on the Campaign. */
+    final?: boolean;
   },
   now: Date
 ): Promise<void> {
   const from = campaign.lifecycleStatus;
   const written = await tx.campaign.updateMany({
     where: { id: campaign.id, lifecycleStatus: from },
-    data: { lifecycleStatus: change.to },
+    data: { lifecycleStatus: change.to, ...(change.final && { rejectionFinal: true }) },
   });
   if (written.count === 0) throw new ConcurrentTransitionError();
   await tx.campaignStatusChange.create({
@@ -160,6 +162,7 @@ async function transition(
       actorId: change.actorId,
       capacity: change.capacity,
       reason: change.reason ?? null,
+      ...(change.final && { final: true }),
       createdAt: now,
     },
   });
@@ -373,7 +376,11 @@ type StepContext<R> = {
   capacity: StatusChangeCapacity;
   reason: R;
   /** The status write, recorded with this command's actor, capacity, reason and `now`. */
-  transition: (to: CampaignStatus, action: CampaignStatusChangeAction) => Promise<void>;
+  transition: (
+    to: CampaignStatus,
+    action: CampaignStatusChangeAction,
+    options?: { final?: boolean }
+  ) => Promise<void>;
   /** Tells the Fundraiser, unless they are the one acting. */
   notify: (notification: { title: string; message: string }) => Promise<void>;
 };
@@ -441,8 +448,8 @@ async function runCommand<P extends ReasonPolicy, Extra extends object>(
       actor,
       capacity,
       reason: reason as ReasonFor<P>,
-      transition: (to, action) =>
-        transition(tx, campaign, { to, action, actorId: actor.userId, capacity, reason }, now),
+      transition: (to, action, options) =>
+        transition(tx, campaign, { to, action, actorId: actor.userId, capacity, reason, ...options }, now),
       notify: (notification) => notifyFundraiser(tx, campaign, actor.userId, notification),
     });
     const state = await tx.campaign.findUniqueOrThrow({
@@ -473,14 +480,30 @@ export type ChecklistEntry = {
 };
 
 /**
- * The active checklist a submission snapshots: the general ("Semua") items
- * plus the Campaign Kind's own (PRD §7.1), in position order, none ticked.
- * Shared by submissions from Draft/Rejected and by change requests on an
- * Active Campaign, so both are judged against the same list.
+ * The active checklist a request snapshots: the general ("Semua") items plus
+ * the Campaign Kind's own (PRD §7.1), narrowed to the items that apply to this
+ * kind of request (`requestKinds`) and to this Fundraiser (`applicant`), in
+ * position order, none ticked. Shared by submissions from Draft/Rejected, by
+ * change requests and by amount reviews, so each is judged against the list
+ * that fits it: the papers about the Fundraiser are asked on a SUBMISSION only.
  */
-async function snapshotChecklist(tx: Tx, kind: Kind): Promise<ChecklistEntry[]> {
+async function snapshotChecklist(
+  tx: Tx,
+  campaign: { kind: Kind; creatorId: string },
+  requestKind: VerificationRequestKind
+): Promise<ChecklistEntry[]> {
+  // The Fundraiser behind the Campaign: an organisation's linked account or a
+  // person. An item scoped to the other one is not asked.
+  const applicant = (await organisationOf(tx, campaign.creatorId)) ? "ORGANISATION" : "INDIVIDUAL";
   const items = await tx.verificationChecklistItem.findMany({
-    where: { active: true, OR: [{ kind: null }, { kind }] },
+    where: {
+      active: true,
+      AND: [
+        { OR: [{ kind: null }, { kind: campaign.kind }] },
+        { OR: [{ applicant: null }, { applicant }] },
+        { requestKinds: { has: requestKind } },
+      ],
+    },
     orderBy: { position: "asc" },
   });
   return items.map((item) => ({
@@ -512,6 +535,24 @@ export type VerificationRequestState = {
 
 export type SubmissionResult = LifecycleResult & { verificationRequest: VerificationRequestState };
 
+/** What a submission without the ticked statement is told (PKS pasal 3.3). */
+export const TRUTH_STATEMENT_REQUIRED_MESSAGE =
+  "Centang pernyataan bahwa data yang Anda isi benar sebelum mengajukan Campaign.";
+
+/**
+ * A Campaign the Verifier rejected for good cannot be submitted again (PKS
+ * pasal 3.4). An InvalidTransitionError, as UnrecordedSuspensionError is: the
+ * status allows the command, this one Campaign does not.
+ */
+export class RejectedForGoodError extends InvalidTransitionError {
+  constructor() {
+    super(CampaignStatus.REJECTED);
+    this.message =
+      "Campaign ini ditolak secara final oleh Verifier dan tidak dapat diajukan ulang. Buat Campaign baru bila perlu.";
+    this.name = "RejectedForGoodError";
+  }
+}
+
 /**
  * The Fundraiser submits their Draft or Rejected Campaign to a Verifier
  * (FFI-04, FFI-05). The Campaign becomes Submitted and a new PENDING
@@ -528,11 +569,25 @@ export type SubmissionResult = LifecycleResult & { verificationRequest: Verifica
  * Collecting Entity it was submitted under. Only its
  * Fundraiser may submit, and always in that Capacity, even holding ADMIN or
  * VERIFIER; nobody is notified, since the Fundraiser is the one acting.
+ *
+ * The Fundraiser must have ticked the "pernyataan kebenaran data" (PKS pasal
+ * 3.3): `truthStatement` other than `true` is refused before anything is
+ * read, and the request records when it was ticked. A Campaign the Verifier
+ * rejected for good (`rejectionFinal`, PKS pasal 3.4) is refused too.
  */
 export async function submitCampaign(
   prisma: PrismaClient,
-  params: { campaignId: string; actor: LifecycleActor; now?: Date }
+  params: {
+    campaignId: string;
+    actor: LifecycleActor;
+    /** The ticked "pernyataan kebenaran data" (PKS pasal 3.3); anything but `true` refuses the submission. */
+    truthStatement: unknown;
+    now?: Date;
+  }
 ): Promise<SubmissionResult> {
+  if (params.truthStatement !== true) {
+    throw new LifecycleValidationError(TRUTH_STATEMENT_REQUIRED_MESSAGE, "truthStatement");
+  }
   return runCommand(prisma, params, {
     authority: {
       capacity: StatusChangeCapacity.FUNDRAISER,
@@ -541,6 +596,9 @@ export async function submitCampaign(
     reasonPolicy: "none",
     allowedFrom: SUBMITTABLE_STATUSES,
     step: async ({ tx, campaign, current, actor, now, transition }) => {
+      if (current === CampaignStatus.REJECTED && campaign.rejectionFinal) {
+        throw new RejectedForGoodError();
+      }
       if (missingRequiredDeadline(campaign)) {
         throw new DeadlineRequiredError(campaign.kind);
       }
@@ -553,7 +611,7 @@ export async function submitCampaign(
       if (collectingEntityId !== campaign.collectingEntityId) {
         await tx.campaign.update({ where: { id: campaign.id }, data: { collectingEntityId } });
       }
-      const checklist = await snapshotChecklist(tx, campaign.kind);
+      const checklist = await snapshotChecklist(tx, campaign, VerificationRequestKind.SUBMISSION);
       const verificationRequest = await tx.verificationRequest.create({
         data: {
           campaignId: campaign.id,
@@ -561,6 +619,7 @@ export async function submitCampaign(
           submittedAt: now,
           checklist,
           isFirst: current === CampaignStatus.DRAFT,
+          truthStatementAcceptedAt: now,
           collectingEntityId,
           kind: VerificationRequestKind.SUBMISSION,
         },
@@ -815,6 +874,10 @@ const VERIFICATION_DECISIONS = {
   },
 } as const;
 
+/** The notification for a rejection the Verifier made for good (PKS pasal 3.4). */
+const FINAL_REJECTION_MESSAGE = (title: string, reason: string | null) =>
+  `Campaign "${title}" ditolak secara final oleh Verifier dan tidak dapat diajukan ulang. Alasan: ${reason}`;
+
 export type VerificationDecision = keyof typeof VERIFICATION_DECISIONS;
 
 /** Which way a Verifier settled a request, as the change-request wording needs it. */
@@ -889,6 +952,12 @@ export type VerificationDecisionResult = LifecycleResult & {
  * withdrawn request answers as such. A decided request is never written
  * again: the write is predicated on PENDING, under the Campaign row lock.
  *
+ * A rejection may be final (`final: true`, PKS pasal 3.4): the Campaign stays
+ * Rejected, but both it and the status change are marked, so submitCampaign
+ * refuses it from then on and the status reads "Ditolak" instead of "Perlu
+ * revisi". The marker is ignored by an approval, a change request and an
+ * amount review, none of which moves the Campaign to Rejected.
+ *
  * Approving records the Fundraiser's Identity Verification when they have
  * none yet (CONTEXT.md, Identity Verification), with this Verifier, `now`
  * and the optional note; an existing one is left as it is. The Fundraiser is
@@ -913,12 +982,18 @@ export async function decideVerificationRequest(
     decision: VerificationDecision;
     ticked?: unknown;
     reason?: unknown;
+    /** Reject for good: the Campaign cannot be submitted again (PKS pasal 3.4). Boolean; ignored by an approval. */
+    final?: unknown;
     identityNote?: unknown;
     now?: Date;
     mailer?: Mailer;
   }
 ): Promise<VerificationDecisionResult> {
   const { requestId } = params;
+  if (params.final !== undefined && params.final !== null && typeof params.final !== "boolean") {
+    throw new LifecycleValidationError("Penanda penolakan final tidak valid.", "final");
+  }
+  const finalRejection = params.final === true && params.decision === "reject";
   const decision = VERIFICATION_DECISIONS[params.decision];
   const ticked = parseTicked(params.ticked);
   const identityNote = optionalReason(params.identityNote, IDENTITY_NOTE);
@@ -1005,7 +1080,7 @@ export async function decideVerificationRequest(
           await applyProposedChanges(tx, campaign.id, proposed);
         }
       } else {
-        await transition(decision.to, decision.action);
+        await transition(decision.to, decision.action, { final: finalRejection });
       }
       let identityVerificationRecorded = false;
       if (decision.outcome === VerificationOutcome.APPROVED) {
@@ -1030,6 +1105,8 @@ export async function decideVerificationRequest(
           ? amountReviewMessage(changeKey(decision.outcome), campaign.title, reason)
           : changeRequest
             ? changeMessage(changeKey(decision.outcome), campaign.title, reason)
+            : finalRejection
+            ? FINAL_REJECTION_MESSAGE(campaign.title, reason)
             : decision.message(campaign.title, reason),
       });
       // No email for an amount review: nothing about the Fundraiser's
@@ -1055,6 +1132,7 @@ export async function decideVerificationRequest(
           campaignTitle: campaign.title,
           campaignUrl: publicUrl(`/campaign/${campaign.slug}`),
           ...(changeRequest ? { kind: "change" as const } : {}),
+          ...(finalRejection && !changeRequest ? { final: true } : {}),
           ...(decision.outcome === VerificationOutcome.APPROVED
             ? { outcome: "approved" as const }
             : { outcome: "rejected" as const, reason: requireReason(reason) }),
@@ -1246,7 +1324,7 @@ export async function requestCampaignChange(
         where: { campaignId: campaign.id, outcome: VerificationOutcome.PENDING, kind: VerificationRequestKind.CHANGE },
       });
       if (pending > 0) throw new ChangeRequestAlreadyPendingError();
-      const checklist = await snapshotChecklist(tx, campaign.kind);
+      const checklist = await snapshotChecklist(tx, campaign, VerificationRequestKind.CHANGE);
       const proposedChanges: ProposedChanges = {
         ...(targetAmount !== undefined && { targetAmount }),
         ...(deadline !== undefined && { deadline: deadline?.toISOString() ?? null }),
@@ -1311,7 +1389,7 @@ export async function raiseAmountReviewVerificationRequest(
     where: { campaignId, kind: VerificationRequestKind.AMOUNT_REVIEW },
   });
   if (existing) return null;
-  const checklist = await snapshotChecklist(tx, campaign.kind);
+  const checklist = await snapshotChecklist(tx, campaign, VerificationRequestKind.AMOUNT_REVIEW);
   return tx.verificationRequest.create({
     data: {
       campaignId,
@@ -1600,8 +1678,8 @@ export async function suspendCampaign(
         },
       });
       await notify({
-        title: "Campaign Dibekukan",
-        message: `Campaign "${campaign.title}" dibekukan (Suspended) oleh Admin. Alasan: ${reason}`,
+        title: "Campaign Ditangguhkan",
+        message: `Campaign "${campaign.title}" ditangguhkan (Suspended) oleh Admin. Alasan: ${reason}`,
       });
       decided.reason = reason;
       return {};
@@ -1825,7 +1903,7 @@ export class FlagAlreadyResolvedError extends CampaignLifecycleError {
   constructor(readonly resolution: FlagResolution) {
     super(
       resolution === FlagResolution.SUSPENDED
-        ? "Flag ini sudah selesai karena Campaign telah dibekukan (Suspended)."
+        ? "Flag ini sudah selesai karena Campaign telah ditangguhkan (Suspended)."
         : "Flag ini sudah ditolak oleh Admin."
     );
     this.name = "FlagAlreadyResolvedError";

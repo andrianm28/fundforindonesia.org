@@ -53,6 +53,28 @@ function cleanReport(over: Partial<ReconciliationReport> = {}): ReconciliationRe
       withdrawals: [],
       divergence: { totalDifference: 0, providersWithDivergence: [] },
       collectionAccountBalance: 0,
+      byEntity: [
+        {
+          merchantEntity: 'YAYASAN',
+          pots: [{ provider: 'sumopod', debited: 1_000, credited: 0, balance: 1_000 }],
+          providerBalanceTotal: 1_000,
+          unattributedBalance: 0,
+          perProviderIsExact: true,
+          withdrawals: [],
+          divergence: { totalDifference: 0, providersWithDivergence: [] },
+          collectionAccountBalance: 0,
+        },
+        {
+          merchantEntity: 'BADAN_USAHA',
+          pots: [],
+          providerBalanceTotal: 0,
+          unattributedBalance: 0,
+          perProviderIsExact: true,
+          withdrawals: [],
+          divergence: { totalDifference: 0, providersWithDivergence: [] },
+          collectionAccountBalance: 0,
+        },
+      ],
       collectedByKind: [],
       caveat: '',
     },
@@ -76,6 +98,7 @@ function withdrawal(over: Record<string, unknown> = {}) {
   return {
     withdrawalId: 'w1',
     provider: 'sumopod',
+    merchantEntity: 'YAYASAN' as const,
     reference: 'WD-001',
     amount: 900_000,
     destinationName: 'YAY GENERASI JAYA INDO',
@@ -181,8 +204,44 @@ describe('AdminReconciliationPage', () => {
     expect(event.textContent).toMatch(/nominal tidak cocok/i);
     expect(event.textContent).toContain('AMOUNT_MISMATCH');
     expect(event.textContent).toContain('29 Oktober 2026');
+    // Closing a reviewed event is on the screen, with a note field (PKS pemenuhan 05).
+    expect(within(event).getByLabelText('Catatan penyelesaian')).toBeInTheDocument();
+    expect(within(event).getByRole('button', { name: 'Tandai selesai' })).toBeDisabled();
     expect(within(queue).getByText('don-9', { selector: 'td' }).closest('tr')!.textContent).toContain('Rp25.000');
     expect(screen.getByRole('region', { name: /ringkasan/i })).toHaveTextContent(/2 temuan/i);
+  });
+
+  it('shows each merchant account on its own, with a divergence of one never shown on the other (ADR 0027)', async () => {
+    const report = cleanReport();
+    report.providerReconciliation.byEntity[1] = {
+      merchantEntity: 'BADAN_USAHA',
+      pots: [{ provider: 'sumopod', debited: 400_000, credited: 100_000, balance: 300_000 }],
+      providerBalanceTotal: 300_000,
+      unattributedBalance: 0,
+      perProviderIsExact: true,
+      withdrawals: [
+        {
+          provider: 'sumopod',
+          pot: { provider: 'sumopod', debited: 400_000, credited: 100_000, balance: 300_000 },
+          withdrawn: 100_000,
+          providerMovedBy: 110_000,
+          difference: 10_000,
+          withdrawals: [],
+        },
+      ],
+      divergence: { totalDifference: 10_000, providersWithDivergence: ['sumopod'] },
+      collectionAccountBalance: 100_000,
+    };
+    await renderPage(report);
+
+    const section = screen.getByRole('region', { name: /rekonsiliasi per merchant/i });
+    const yayasan = within(section).getByTestId('rec-entity-YAYASAN');
+    const badan = within(section).getByTestId('rec-entity-BADAN_USAHA');
+    expect(yayasan.textContent).toContain('Rp1.000');
+    expect(yayasan.textContent).not.toMatch(/selisih/i);
+    expect(badan.textContent).toContain('Rp300.000');
+    expect(badan.textContent).toMatch(/selisih/i);
+    expect(badan.textContent).toContain('Rp10.000');
   });
 
   it('offers the withdrawal form with registered Collecting Entities', async () => {

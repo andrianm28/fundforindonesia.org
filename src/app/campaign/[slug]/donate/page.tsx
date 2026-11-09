@@ -1,21 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCampaignDetail } from '@/lib/hooks/useCampaignDetail';
 import { DonationAmountSelector } from '@/components/donation/DonationAmountSelector';
 import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelector';
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
+import { useDonationPresets } from '@/components/donation/DonationPresetsContext';
 import { formatRupiah } from '@/lib/utils/currency';
-import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MIN_DONATION_AMOUNT } from '@/lib/donations';
+import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MAX_DONATION_AMOUNT, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { donationRefusalCopy, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import { readCapturedTrafficSource } from '@/lib/traffic-source-capture';
 import type { PaymentMethod } from '@/types/donation';
 
-const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
-const MAX_AMOUNT = 1000000000;
+const MAX_AMOUNT = MAX_DONATION_AMOUNT;
 
 /**
  * Only what the payment provider can actually charge.
@@ -46,9 +47,21 @@ export default function DonatePage() {
   // From the server through the layout's context, never from the environment
   // (ticket rilis-1-benda/92): the confirmation step says no real money moves.
   const betaSandbox = useBetaSandbox();
+  // The Admin's presets, read on the server by the layout (src/lib/operations.ts).
+  const presetAmounts = useDonationPresets();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+
+  // `?jumlah=` from the zakat page (PKS pemenuhan 19): only a prefill, read
+  // after mount so the server render and the first client render agree. Not a
+  // whole amount within the donation limits: ignored.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('jumlah');
+    if (raw === null || !/^\d+$/.test(raw)) return;
+    const amount = Number(raw);
+    if (Number.isSafeInteger(amount) && amount >= MIN_DONATION_AMOUNT && amount <= MAX_AMOUNT) setSelectedAmount(amount);
+  }, []);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   const [prayer, setPrayer] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
@@ -319,7 +332,10 @@ export default function DonatePage() {
             {/* The Donor's legal counterparty is the Collecting Entity, not the platform (ADR 0010). */}
             {campaign.collectingEntity && (
               <p className="text-xs text-text-secondary mt-0.5">
-                Dihimpun oleh {campaign.collectingEntity.name}
+                Dihimpun oleh{' '}
+                <Link href={`/lembaga/${campaign.collectingEntity.id}`} className="text-primary hover:underline">
+                  {campaign.collectingEntity.name}
+                </Link>
               </p>
             )}
           </div>
@@ -331,7 +347,7 @@ export default function DonatePage() {
         {/* Step 1: Amount Selection */}
         {currentStep === 1 && (
           <DonationAmountSelector
-            presets={PRESET_AMOUNTS}
+            presets={presetAmounts}
             minAmount={MIN_DONATION_AMOUNT}
             maxAmount={MAX_AMOUNT}
             selectedAmount={selectedAmount}

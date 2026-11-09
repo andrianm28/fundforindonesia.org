@@ -29,6 +29,11 @@ vi.mock('framer-motion', () => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+/** The Aamiin status read the list makes on mount: this visitor has given none. */
+function mockAamiinStatusNone() {
+  mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ given: [] }) });
+}
+
 function createMockPrayer(overrides: Partial<PrayerStreamItem> = {}): PrayerStreamItem {
   return {
     id: 'prayer-1',
@@ -126,6 +131,7 @@ describe('CampaignPrayers', () => {
   });
 
   it('optimistically increments amiin count on click', async () => {
+    mockAamiinStatusNone();
     mockFetch.mockResolvedValueOnce({ ok: true });
 
     const prayers = [createMockPrayer({ amiinCount: 3 })];
@@ -144,6 +150,7 @@ describe('CampaignPrayers', () => {
   });
 
   it('reverts amiin count on API failure', async () => {
+    mockAamiinStatusNone();
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
     const prayers = [createMockPrayer({ amiinCount: 3 })];
@@ -186,6 +193,7 @@ describe('CampaignPrayers', () => {
       },
     ];
 
+    mockAamiinStatusNone();
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ prayers: morePrayers, total: 6, page: 2, limit: 5, totalPages: 2 }),

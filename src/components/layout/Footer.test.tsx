@@ -19,6 +19,18 @@ describe('Footer support menu', () => {
   });
 });
 
+describe('Footer zakat link (ADR 0028)', () => {
+  it('has no zakat link by default: the module is off', () => {
+    render(<Footer />);
+    expect(screen.queryByRole('link', { name: 'Zakat' })).toBeNull();
+  });
+
+  it('links Zakat to /zakat only when the module is switched on', () => {
+    render(<Footer zakatOpen />);
+    expect(screen.getByRole('link', { name: 'Zakat' })).toHaveAttribute('href', '/zakat');
+  });
+});
+
 describe('Footer public settings', () => {
   it('shows the Admin-set text and only the social links that are set', () => {
     render(

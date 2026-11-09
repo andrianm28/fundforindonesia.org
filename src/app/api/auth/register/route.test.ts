@@ -20,7 +20,10 @@ vi.mock('@/lib/password-hash', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
-import { sealUserEmail } from '@/lib/contact-fields';
+import { sealUserEmail, readUserPhone } from '@/lib/contact-fields';
+import { LEGAL_DOCS_VERSION } from '@/lib/site-identity';
+
+const CONSENT = { acceptTerms: true, acceptPrivacy: true };
 
 function createRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/auth/register', {
@@ -36,7 +39,7 @@ describe('POST /api/auth/register', () => {
   });
 
   it('should return 400 when name is missing', async () => {
-    const req = createRequest({ email: 'test@example.com', password: '12345678' });
+    const req = createRequest({ email: 'test@example.com', ...CONSENT, password: '12345678' });
     const res = await POST(req);
     const body = await res.json();
 
@@ -45,7 +48,7 @@ describe('POST /api/auth/register', () => {
   });
 
   it('should return 400 when email format is invalid', async () => {
-    const req = createRequest({ name: 'Test', email: 'invalid-email', password: '12345678' });
+    const req = createRequest({ name: 'Test', email: 'invalid-email', ...CONSENT, password: '12345678' });
     const res = await POST(req);
     const body = await res.json();
 
@@ -56,7 +59,7 @@ describe('POST /api/auth/register', () => {
   it('should return 409 when email already exists', async () => {
     vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'existing-user' } as never);
 
-    const req = createRequest({ name: 'Test', email: 'test@example.com', password: '12345678' });
+    const req = createRequest({ name: 'Test', email: 'test@example.com', ...CONSENT, password: '12345678' });
     const res = await POST(req);
     const body = await res.json();
 
@@ -72,7 +75,7 @@ describe('POST /api/auth/register', () => {
       ...sealUserEmail('new@example.com'),
     } as never);
 
-    const req = createRequest({ name: 'New User', email: 'new@example.com', password: '12345678' });
+    const req = createRequest({ name: 'New User', email: 'new@example.com', ...CONSENT, password: '12345678' });
     const res = await POST(req);
     const body = await res.json();
 
@@ -93,7 +96,7 @@ describe('POST /api/auth/register', () => {
     } as never);
 
     const res = await POST(
-      createRequest({ name: 'New User', email: 'New@Example.com', password: '12345678' }),
+      createRequest({ name: 'New User', email: 'New@Example.com', ...CONSENT, password: '12345678' }),
     );
     const body = await res.json();
 
@@ -106,7 +109,7 @@ describe('POST /api/auth/register', () => {
   it('looks the address up by its HMAC, so a duplicate is found however it was typed', async () => {
     vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'existing' } as never);
 
-    await POST(createRequest({ name: 'Test', email: 'TEST@Example.com', password: '12345678' }));
+    await POST(createRequest({ name: 'Test', email: 'TEST@Example.com', ...CONSENT, password: '12345678' }));
 
     // A 64-hex HMAC and never the address itself, which is what closes the
     // case-sensitivity gap the old case-sensitive `email @unique` had.
@@ -129,7 +132,7 @@ describe('POST /api/auth/register', () => {
           ? { id: 'existing' }
           : null) as never);
 
-      const response = await POST(createRequest({ name: 'Test', email: 'DUP@example.com', password: '12345678' }));
+      const response = await POST(createRequest({ name: 'Test', email: 'DUP@example.com', ...CONSENT, password: '12345678' }));
 
       expect(response.status).toBe(409);
       expect(prisma.user.create).not.toHaveBeenCalled();
@@ -149,7 +152,7 @@ describe('POST /api/auth/register', () => {
       ...sealUserEmail('new@example.com'),
     } as never);
 
-    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com' }));
+    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com', ...CONSENT }));
 
     expect(res.status).toBe(201);
     expect(hashPassword).not.toHaveBeenCalled();
@@ -168,7 +171,7 @@ describe('POST /api/auth/register', () => {
       ...sealUserEmail('new@example.com'),
     } as never);
 
-    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com', password: 'attacker-chosen' }));
+    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com', ...CONSENT, password: 'attacker-chosen' }));
 
     expect(res.status).toBe(201);
     expect(hashPassword).not.toHaveBeenCalled();
@@ -177,5 +180,83 @@ describe('POST /api/auth/register', () => {
     // Sealed, not stored in the clear (ADR 0012).
     expect(data).not.toHaveProperty('email');
     expect(data.emailHmac).toBeDefined();
+  });
+
+  // Tiket 07 (PKS 3.1, 3.8).
+  describe('persetujuan, WhatsApp dan jenis profil', () => {
+    const base = { name: 'New User', email: 'new@example.com', password: '12345678' };
+
+    function created() {
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.user.create).mockResolvedValue({
+        id: 'new-user-id',
+        name: 'New User',
+        ...sealUserEmail('new@example.com'),
+      } as never);
+    }
+
+    it('menolak pendaftaran tanpa kedua centang, dan tidak membuat akun', async () => {
+      created();
+      for (const consent of [{}, { acceptTerms: true }, { acceptPrivacy: true }, { acceptTerms: true, acceptPrivacy: false }]) {
+        const res = await POST(createRequest({ ...base, ...consent }));
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.errors.acceptTerms ?? body.errors.acceptPrivacy).toBeDefined();
+      }
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('menyimpan persetujuan Syarat dan Privasi dengan versi dan waktu, dalam penulisan yang sama dengan akun', async () => {
+      created();
+      const before = Date.now();
+      const res = await POST(createRequest({ ...base, ...CONSENT }));
+      expect(res.status).toBe(201);
+
+      const { data } = vi.mocked(prisma.user.create).mock.calls[0][0];
+      const rows = (data.consents as { create: Array<{ document: string; version: string; acceptedAt: Date }> }).create;
+      expect(rows.map((r) => r.document).sort()).toEqual(['PRIVACY', 'TERMS']);
+      for (const row of rows) {
+        expect(row.version).toBe(LEGAL_DOCS_VERSION);
+        expect(row.acceptedAt.getTime()).toBeGreaterThanOrEqual(before);
+      }
+    });
+
+    it('menyimpan WhatsApp dinormalkan dan terenkripsi, tanpa kolom polos', async () => {
+      created();
+      const res = await POST(createRequest({ ...base, ...CONSENT, whatsapp: '0812-3456-7890' }));
+      expect(res.status).toBe(201);
+
+      const { data } = vi.mocked(prisma.user.create).mock.calls[0][0];
+      expect(JSON.stringify(data)).not.toContain('6281234567890');
+      expect(data).not.toHaveProperty('phone');
+      expect(readUserPhone(data as never)).toBe('6281234567890');
+    });
+
+    it('WhatsApp opsional: tanpa nomor, kolom terenkripsi kosong', async () => {
+      created();
+      await POST(createRequest({ ...base, ...CONSENT }));
+      const { data } = vi.mocked(prisma.user.create).mock.calls[0][0];
+      expect(data.phoneCiphertext).toBeNull();
+      expect(data.profileType).toBe('INDIVIDUAL');
+    });
+
+    it('menolak nomor yang bukan format Indonesia', async () => {
+      created();
+      const res = await POST(createRequest({ ...base, ...CONSENT, whatsapp: '12345' }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).errors.whatsapp).toMatch(/WhatsApp/);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('menerima pilihan Lembaga', async () => {
+      created();
+      await POST(createRequest({ ...base, ...CONSENT, profileType: 'ORGANISATION' }));
+      expect(vi.mocked(prisma.user.create).mock.calls[0][0].data.profileType).toBe('ORGANISATION');
+    });
+
+    it('menolak jenis profil di luar Individu/Lembaga', async () => {
+      const res = await POST(createRequest({ ...base, ...CONSENT, profileType: 'ADMIN' }));
+      expect(res.status).toBe(400);
+    });
   });
 });

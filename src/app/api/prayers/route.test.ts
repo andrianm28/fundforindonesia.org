@@ -230,7 +230,7 @@ describe('GET /api/prayers', () => {
     );
   });
 
-  it('sets Cache-Control header', async () => {
+  it('sets Cache-Control header: 60 seconds shared, never served stale (a moderated Prayer must leave within a minute)', async () => {
     mockFindMany.mockResolvedValue([]);
     mockCount.mockResolvedValue(0);
 
@@ -238,7 +238,7 @@ describe('GET /api/prayers', () => {
     const response = await GET(request);
 
     expect(response.headers.get('Cache-Control')).toBe(
-      'public, s-maxage=60, stale-while-revalidate=300'
+      'public, s-maxage=60, stale-while-revalidate=0'
     );
   });
 
@@ -252,8 +252,8 @@ describe('GET /api/prayers', () => {
     // Every entry in this feed links to the Campaign it names, so the feed
     // may not name one that no public list shows (CONTEXT.md, Demo Campaign).
     const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    expect(where).toEqual({ campaign: { isDemo: false } });
-    expect(mockCount).toHaveBeenCalledWith({ where: { campaign: { isDemo: false } } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: { isDemo: false } });
+    expect(mockCount).toHaveBeenCalledWith({ where: { hidden: false, deletedAt: null, campaign: { isDemo: false } } });
   });
 
   it('answers about the one Campaign asked for by slug, Demo or not', async () => {
@@ -266,7 +266,7 @@ describe('GET /api/prayers', () => {
     // That Campaign's own page is still open and badges itself, so its
     // Prayers stay where the page shows them.
     const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    expect(where).toEqual({ campaign: { slug: 'bantu-anak' } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: { slug: 'bantu-anak' } });
   });
 
   it('returns 500 on database error', async () => {
@@ -304,8 +304,8 @@ describe('GET /api/prayers with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
     await GET(createRequest('http://localhost:3000/api/prayers'));
 
     const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    expect(where).toEqual({ campaign: {} });
-    expect(mockCount).toHaveBeenCalledWith({ where: { campaign: {} } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: {} });
+    expect(mockCount).toHaveBeenCalledWith({ where: { hidden: false, deletedAt: null, campaign: {} } });
   });
 
   it('names none once a real Campaign is Active', async () => {
@@ -314,15 +314,37 @@ describe('GET /api/prayers with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
     await GET(createRequest('http://localhost:3000/api/prayers'));
 
     const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    expect(where).toEqual({ campaign: { isDemo: false } });
-    expect(mockCount).toHaveBeenCalledWith({ where: { campaign: { isDemo: false } } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: { isDemo: false } });
+    expect(mockCount).toHaveBeenCalledWith({ where: { hidden: false, deletedAt: null, campaign: { isDemo: false } } });
   });
 
   it('answers about the one Campaign asked for by slug without asking whether a real one is Active', async () => {
     await GET(createRequest('http://localhost:3000/api/prayers?campaignSlug=bantu-anak'));
 
     const { where } = mockFindMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    expect(where).toEqual({ campaign: { slug: 'bantu-anak' } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: { slug: 'bantu-anak' } });
     expect(mockRealActive).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/prayers leaves out moderated Prayers (PKS 3.7c)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindMany.mockResolvedValue([] as never);
+    mockCount.mockResolvedValue(0);
+  });
+
+  it.each([
+    ['one Campaign', 'http://localhost:3000/api/prayers?campaignSlug=bantu-anak'],
+    ['the whole platform', 'http://localhost:3000/api/prayers'],
+  ])('lists no hidden or deleted Prayer for %s, and counts without them', async (_label, url) => {
+    mockRealActive.mockResolvedValue({ id: 'real' } as never);
+    await GET(createRequest(url));
+
+    const findWhere = mockFindMany.mock.calls[0][0]!.where;
+    const countWhere = mockCount.mock.calls[0][0]!.where;
+    for (const where of [findWhere, countWhere]) {
+      expect(where).toMatchObject({ hidden: false, deletedAt: null });
+    }
   });
 });

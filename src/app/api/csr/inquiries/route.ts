@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { partnershipInquiryErrorToHttp } from "@/lib/partnership-inquiries";
+import { readInquiryRequestBody } from "@/lib/inquiry-request";
 import { csrErrorToHttp, listCompanyInquiries, submitCompanyInquiry } from "@/lib/tim-csr";
 
 /**
@@ -24,16 +25,32 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession();
-  const parsed = await req.json().catch(() => undefined);
-  const body = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  // JSON, or multipart when a proposal PDF is attached (pks-pemenuhan/17).
+  const read = await readInquiryRequestBody(req);
+  const body = "error" in read ? null : read.fields;
+  const proposal = "error" in read ? undefined : (read.proposal ?? undefined);
   try {
-    // Only these three fields are read; a company id in the body is ignored.
-    const inquiry = await submitCompanyInquiry(prisma, session?.user?.id, {
-      programId: body?.programId,
-      needs: body?.needs,
-      contactPhone: body?.contactPhone,
-    });
-    return NextResponse.json({ inquiry: { id: inquiry.id, status: inquiry.status } }, { status: 201 });
+    // Only these fields are read; a company id in the body is ignored.
+    const inquiry = await submitCompanyInquiry(
+      prisma,
+      session?.user?.id,
+      {
+        programId: body?.programId,
+        needs: body?.needs,
+        contactPhone: body?.contactPhone,
+        budgetRange: body?.budgetRange,
+        periodStart: body?.periodStart,
+        periodEnd: body?.periodEnd,
+        companyAddress: body?.companyAddress,
+        companyNpwp: body?.companyNpwp,
+      },
+      undefined,
+      proposal,
+    );
+    return NextResponse.json(
+      { inquiry: { id: inquiry.id, status: inquiry.status, proposalStored: inquiry.proposalStored } },
+      { status: 201 },
+    );
   } catch (error) {
     if (csrErrorToHttp(error)?.status === 404) return NOT_FOUND();
     const refusal = partnershipInquiryErrorToHttp(error);

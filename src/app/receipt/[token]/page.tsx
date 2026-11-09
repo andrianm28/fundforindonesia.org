@@ -64,6 +64,9 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
       // Decided here, on the server: ReceiptView is a client component and
       // never reads the environment (ticket rilis-1-benda/92).
       betaSandbox={receiptNeedsBetaNotice(donation.payments)}
+      // The same Receipt, labelled zakat for a zakat Campaign (ADR 0028). Not
+      // behind the module's switch: it is proof of money already paid.
+      zakat={campaign.kind === 'ZAKAT'}
     />
   );
 }

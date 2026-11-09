@@ -140,4 +140,67 @@ describe('TripPayoutPanel', () => {
     render(<TripPayoutPanel slug="trip-a" />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Gagal memuat data pencairan.');
   });
+
+  describe('supporting papers, revision reason and resubmit (PKS Pasal 4.5)', () => {
+    const DRAFT = {
+      id: 'p-draft',
+      amount: 100_000,
+      description: 'Tahap 1',
+      status: 'DRAFT',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      supportingNote: 'Catatan saya',
+      revisionReason: null,
+      documents: [{ id: 'd1', label: 'RAB', contentType: 'application/pdf', sizeBytes: 2048, uploadedAt: '2026-11-02T00:00:00.000Z' }],
+    };
+    const REVISION = {
+      id: 'p-rev',
+      amount: 50_000,
+      description: 'Tahap 2',
+      status: 'REVISION_REQUESTED',
+      createdAt: '2026-11-03T00:00:00.000Z',
+      supportingNote: null,
+      revisionReason: 'Lampirkan nota',
+      documents: [],
+    };
+
+    it('shows the note, the papers and the revision reason of a Payout that can still take papers', async () => {
+      serve({ ...READ, payouts: [REVISION, DRAFT] });
+      render(<TripPayoutPanel slug="trip-a" />);
+
+      expect(await screen.findByText(/Alasan: Lampirkan nota/)).toBeInTheDocument();
+      expect(screen.getByText('RAB')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Ajukan ulang' })).toBeInTheDocument();
+    });
+
+    it('resubmits through the shared Payout route, then reloads the Trip read', async () => {
+      serve({ ...READ, payouts: [REVISION] }, res(200, { id: 'p-rev', status: 'DRAFT' }));
+      render(<TripPayoutPanel slug="trip-a" />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Ajukan ulang' }));
+
+      await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/api/user/payouts/p-rev/resubmit')).toBe(true));
+      await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/volunteer-trips/trip-a/payouts').length).toBeGreaterThan(1));
+      expect(refresh).toHaveBeenCalled();
+    });
+
+    it('offers no paper controls for a Payout already decided', async () => {
+      serve({ ...READ, payouts: [{ ...DRAFT, id: 'p-done', status: 'COMPLETED' }] });
+      render(<TripPayoutPanel slug="trip-a" />);
+
+      await screen.findByText('Tahap 1', { exact: false });
+      expect(screen.queryByRole('button', { name: 'Unggah dokumen' })).toBeNull();
+    });
+
+    it('sends the optional note with a new request', async () => {
+      serve(READ);
+      render(<TripPayoutPanel slug="trip-a" />);
+      await fillForm();
+      fireEvent.change(screen.getByLabelText('Catatan tambahan'), { target: { value: ' Nota menyusul ' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Ajukan pencairan' }));
+
+      await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true));
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!;
+      expect(JSON.parse(post[1].body)).toMatchObject({ note: 'Nota menyusul' });
+    });
+  });
 });

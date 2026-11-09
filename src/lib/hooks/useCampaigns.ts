@@ -1,12 +1,15 @@
 import useSWR from 'swr';
 import type { CampaignWithCreator } from '@/types/campaign';
 import type { CampaignKind } from '@/lib/campaign-kind';
+import type { CampaignSort } from '@/lib/campaign-sort';
 
 export interface UseCampaignsOptions {
   category?: string;
   kind?: CampaignKind;
   search?: string;
   urgent?: boolean;
+  /** Catalogue order (PKS 3.7); omitted means the server default, terbaru. */
+  sort?: CampaignSort;
   page?: number;
   limit?: number;
 }
@@ -32,6 +35,7 @@ function buildQueryString(options: UseCampaignsOptions): string {
   if (options.kind) params.set('kind', options.kind);
   if (options.search) params.set('search', options.search);
   if (options.urgent !== undefined) params.set('urgent', String(options.urgent));
+  if (options.sort) params.set('sort', options.sort);
   if (options.page !== undefined) params.set('page', String(options.page));
   if (options.limit !== undefined) params.set('limit', String(options.limit));
 

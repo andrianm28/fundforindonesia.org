@@ -11,6 +11,7 @@ import {
   readDonationGuestEmail,
   readDonationGuestPhone,
   readInquiryContactEmail,
+  readResponsiblePersonPhone,
   readUserEmail,
   readUserPhone,
   requireFieldKeys,
@@ -19,6 +20,7 @@ import {
   sealDonationGuestPhone,
   sealInquiryContactEmail,
   sealInquiryContactPhone,
+  sealResponsiblePersonPhone,
   sealUserEmail,
   sealUserPhone,
 } from './contact-fields';
@@ -68,6 +70,21 @@ describe('sealing a contact detail for a write', () => {
     expect(
       keys.decrypt('User.phone', { ciphertext: sealed.phoneCiphertext as string, keyId: sealed.phoneKeyId as string }),
     ).toBe('+6281234567890');
+  });
+
+  it('seals the responsible person\'s phone under PartnerOrganisation.responsiblePersonPhone, with no HMAC (PKS 3.2)', () => {
+    const sealed = sealResponsiblePersonPhone('081234567890');
+
+    expect(Object.keys(sealed).sort()).toEqual(['responsiblePersonPhoneCiphertext', 'responsiblePersonPhoneKeyId']);
+    expect(sealed.responsiblePersonPhoneCiphertext).not.toContain('081234567890');
+    expect(
+      keys.decrypt('PartnerOrganisation.responsiblePersonPhone', {
+        ciphertext: sealed.responsiblePersonPhoneCiphertext as string,
+        keyId: sealed.responsiblePersonPhoneKeyId as string,
+      }),
+    ).toBe('081234567890');
+    expect(readResponsiblePersonPhone(sealed)).toBe('081234567890');
+    expect(readResponsiblePersonPhone({ responsiblePersonPhoneCiphertext: null, responsiblePersonPhoneKeyId: null })).toBeNull();
   });
 
   it('clears a phone number that was cleared, rather than sealing the string "null"', () => {

@@ -7,7 +7,9 @@ import { SandboxBadge } from '@/components/money/SandboxBadge';
 import { formatRupiah } from '@/lib/utils/currency';
 import { exceedsPayoutBalance } from '@/lib/payout-balance-rule';
 import { PAYOUT_STATUS_LABEL } from '@/lib/payout-status-label';
+import { MAX_PAYOUT_NOTE_LENGTH } from '@/lib/payout-limits';
 import type { PayoutStatus } from '@/generated/prisma/client';
+import { PayoutSupportingPapers, type PayoutPaper } from '@/components/campaign/PayoutSupportingPapers';
 
 /**
  * A Trip Fundraiser's own money on one Volunteer Trip, and the form to ask
@@ -33,6 +35,10 @@ interface PayoutRow {
   description: string;
   status: PayoutStatus;
   createdAt: string;
+  /** PKS Pasal 4.5: the Fundraiser's own note, the Admin's revision reason, and the papers attached. */
+  supportingNote?: string | null;
+  revisionReason?: string | null;
+  documents?: PayoutPaper[];
 }
 
 interface BankAccountOption {
@@ -61,6 +67,7 @@ export function TripPayoutPanel({ slug }: { slug: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
+  const [note, setNote] = useState('');
   const [bankAccountId, setBankAccountId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -113,7 +120,12 @@ export function TripPayoutPanel({ slug }: { slug: string }) {
       const res = await fetch(`/api/volunteer-trips/${slug}/payouts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bankAccountId, amount: requested, description: description.trim() }),
+        body: JSON.stringify({
+          bankAccountId,
+          amount: requested,
+          description: description.trim(),
+          ...(note.trim() !== '' ? { note: note.trim() } : {}),
+        }),
       });
       if (!res.ok) {
         // The server's own words: a domain refusal (funds not yet from a
@@ -124,6 +136,7 @@ export function TripPayoutPanel({ slug }: { slug: string }) {
       }
       setAmount('');
       setDescription('');
+      setNote('');
       setBankAccountId('');
       await load();
       router.refresh();
@@ -235,6 +248,18 @@ export function TripPayoutPanel({ slug }: { slug: string }) {
               />
             </label>
 
+            <label className="block text-sm text-text">
+              Catatan tambahan (opsional)
+              <textarea
+                aria-label="Catatan tambahan"
+                value={note}
+                maxLength={MAX_PAYOUT_NOTE_LENGTH}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Dokumen pendukung dapat diunggah dari Riwayat pencairan setelah diajukan."
+                className="mt-1 w-full rounded-lg border border-border px-3 py-2"
+              />
+            </label>
+
             <button
               type="button"
               onClick={submit}
@@ -268,6 +293,20 @@ export function TripPayoutPanel({ slug }: { slug: string }) {
                 <p className="mt-1 text-xs text-text-secondary">
                   {payout.description} - diajukan {formatDate(payout.createdAt)}
                 </p>
+
+                {(payout.status === 'DRAFT' || payout.status === 'REVISION_REQUESTED') && (
+                  <PayoutSupportingPapers
+                    payoutId={payout.id}
+                    status={payout.status}
+                    note={payout.supportingNote ?? null}
+                    revisionReason={payout.revisionReason ?? null}
+                    documents={payout.documents ?? []}
+                    onChanged={async () => {
+                      await load();
+                      router.refresh();
+                    }}
+                  />
+                )}
               </li>
             ))}
           </ul>

@@ -11,6 +11,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     donation: { findUnique: vi.fn() },
+    // No operations row: the Admin donation switch is at its default (open).
+    siteSetting: { findUnique: vi.fn().mockResolvedValue(null) },
   },
 }));
 

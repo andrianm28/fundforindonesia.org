@@ -174,7 +174,7 @@ describe.skipIf(!DATABASE_URL)('Finance recap -- against real Postgres (ticket 7
             providerFee: figures.providerFee,
             platformFee: figures.platformFee,
           }),
-          { paymentId: payment.id, sandbox, provider: 'sumopod' },
+          { merchantEntity: 'YAYASAN', paymentId: payment.id, sandbox, provider: 'sumopod' },
         ),
       );
       return payment.id;

@@ -94,6 +94,8 @@ export type PaymentRow = {
   providerFee: number;
   status: PaymentStatus;
   escrowReleasedAt: Date | null;
+  /** Payment.merchantEntity is NOT NULL, so a real Payment always has one (ADR 0027). */
+  merchantEntity: 'YAYASAN' | 'BADAN_USAHA';
 };
 
 export type RefundRow = {
@@ -257,6 +259,7 @@ export function paymentRow(overrides: Partial<PaymentRow> = {}): PaymentRow {
     providerFee: 0,
     status: 'PAID',
     escrowReleasedAt: null,
+    merchantEntity: 'YAYASAN',
     ...overrides,
   };
 }

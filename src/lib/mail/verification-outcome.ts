@@ -18,6 +18,11 @@ export type VerificationOutcomeEmailInput = {
    * the Fundraiser reads a proposal as if their Campaign had been approved.
    */
   kind?: 'submission' | 'change';
+  /**
+   * The Verifier rejected the Campaign for good (PKS pasal 3.4): it cannot be
+   * submitted again, so the email must not tell the Fundraiser to resubmit.
+   */
+  final?: boolean;
 } & ({ outcome: 'approved' } | { outcome: 'rejected'; reason: string });
 
 function escapeHtml(value: string): string {
@@ -73,7 +78,9 @@ export function verificationOutcomeEmail(input: VerificationOutcomeEmailInput): 
             body: [
               `Campaign "${input.campaignTitle}" ditolak oleh Verifier.`,
               `Alasan: ${input.reason}`,
-              'Perbaiki Campaign Anda sesuai alasan tersebut, lalu ajukan kembali lewat tautan ini:',
+              input.final
+                ? 'Penolakan ini bersifat final: Campaign ini tidak dapat diajukan ulang. Tautan Campaign:'
+                : 'Perbaiki Campaign Anda sesuai alasan tersebut, lalu ajukan kembali lewat tautan ini:',
             ],
           };
   const greeting = `Halo ${input.fundraiserName},`;

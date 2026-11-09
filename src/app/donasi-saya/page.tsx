@@ -25,8 +25,18 @@ interface DonationItem {
   akadWakafToken: string | null;
 }
 
+interface SupportedCampaign {
+  slug: string;
+  title: string;
+  coverImage: string;
+  totalAmount: number;
+  donationCount: number;
+}
+
 interface DonationsResponse {
   donations: DonationItem[];
+  /** One row per Campaign with a settled Donation, settled total only (PKS 3.8). */
+  supportedCampaigns?: SupportedCampaign[];
   total: number;
   page: number;
   limit: number;
@@ -42,6 +52,7 @@ export default function DonasiSayaPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(true);
+  const [supported, setSupported] = useState<SupportedCampaign[]>([]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -58,6 +69,7 @@ export default function DonasiSayaPage() {
       const data: DonationsResponse = await res.json();
       setDonations(data.donations);
       setEmailVerified(data.emailVerified !== false);
+      setSupported(data.supportedCampaigns ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
     } finally {
@@ -99,6 +111,7 @@ export default function DonasiSayaPage() {
       {/* Content */}
       <div className="px-4 mt-4">
         {!isLoading && !error && !emailVerified && <VerifyEmailPrompt />}
+        {!isLoading && !error && supported.length > 0 && <SupportedCampaigns campaigns={supported} />}
         {isLoading ? (
           <DonationListSkeleton />
         ) : error ? (
@@ -118,6 +131,31 @@ export default function DonasiSayaPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/** "Kampanye yang Anda dukung" (PKS 3.8): each Campaign once, with what this Donor gave it in settled Donations. */
+function SupportedCampaigns({ campaigns }: { campaigns: SupportedCampaign[] }) {
+  return (
+    <section className="mb-4">
+      <h2 className="text-text text-sm font-semibold mb-2">Kampanye yang Anda dukung</h2>
+      <ul className="space-y-2">
+        {campaigns.map((c) => (
+          <li key={c.slug}>
+            <a
+              href={`/campaign/${c.slug}`}
+              className="flex items-center justify-between gap-3 bg-white rounded-xl shadow-xs p-3 hover:shadow-md transition-shadow"
+            >
+              <span className="text-text text-sm font-medium line-clamp-2 min-w-0">{c.title}</span>
+              <span className="shrink-0 text-right">
+                <span className="block text-[#0073E6] text-sm font-bold">{formatRupiah(c.totalAmount)}</span>
+                <span className="block text-text-secondary text-xs">{c.donationCount} donasi</span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -196,6 +234,15 @@ function DonationCard({
           className="mt-2 inline-block text-[#0073E6] text-xs font-medium hover:underline"
         >
           Lihat &amp; Cetak Bukti Donasi
+        </a>
+      )}
+      {donation.paymentStatus === 'confirmed' && donation.receiptToken && (
+        <a
+          href={`/api/receipts/${donation.receiptToken}/pdf`}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 ml-3 inline-block text-[#0073E6] text-xs font-medium hover:underline"
+        >
+          Unduh bukti (PDF)
         </a>
       )}
       {donation.paymentStatus === 'confirmed' && <RefundRequest donation={donation} />}

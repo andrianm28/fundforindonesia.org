@@ -31,12 +31,15 @@ describe('CampaignLocationFields', () => {
 
     fireEvent.change(screen.getByLabelText('Jumlah Penerima Manfaat'), { target: { value: '40' } });
     expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_LOCATION_FORM, regency: 'Garut', beneficiaryCount: '40' });
+
+    fireEvent.change(screen.getByLabelText('Hubungan dengan Penerima Manfaat'), { target: { value: 'Guru' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_LOCATION_FORM, regency: 'Garut', beneficiaryRelationship: 'Guru' });
   });
 
   it('shows the given values and errors', () => {
     render(
       <CampaignLocationFields
-        value={{ province: '33', regency: 'Semarang', beneficiaryDescription: 'Warga', beneficiaryCount: '7' }}
+        value={{ province: '33', regency: 'Semarang', beneficiaryDescription: 'Warga', beneficiaryCount: '7', beneficiaryRelationship: 'Tetangga' }}
         errors={{ beneficiaryCount: 'Jumlah penerima manfaat harus bilangan bulat lebih dari 0' }}
         onChange={() => {}}
       />,
@@ -45,6 +48,7 @@ describe('CampaignLocationFields', () => {
     expect(screen.getByLabelText('Provinsi')).toHaveValue('33');
     expect(screen.getByLabelText('Kabupaten/Kota')).toHaveValue('Semarang');
     expect(screen.getByLabelText('Penerima Manfaat')).toHaveValue('Warga');
+    expect(screen.getByLabelText('Hubungan dengan Penerima Manfaat')).toHaveValue('Tetangga');
     expect(screen.getByText(/harus bilangan bulat/)).toBeInTheDocument();
   });
 });

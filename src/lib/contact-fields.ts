@@ -93,6 +93,26 @@ const CONTACT_PHONE: ContactField = {
   keyId: 'contactPhoneKeyId',
 };
 
+const COMPANY_ADDRESS: ContactField = {
+  model: 'PartnershipInquiry',
+  column: 'companyAddress',
+  sealed: 'companyAddressCiphertext',
+  keyId: 'companyAddressKeyId',
+};
+const COMPANY_NPWP: ContactField = {
+  model: 'PartnershipInquiry',
+  column: 'companyNpwp',
+  sealed: 'companyNpwpCiphertext',
+  keyId: 'companyNpwpKeyId',
+};
+
+const RESPONSIBLE_PERSON_PHONE: ContactField = {
+  model: 'PartnerOrganisation',
+  column: 'responsiblePersonPhone',
+  sealed: 'responsiblePersonPhoneCiphertext',
+  keyId: 'responsiblePersonPhoneKeyId',
+};
+
 const INVITATION_EMAIL: ContactField = {
   model: 'OrganisationInvitation',
   column: 'email',
@@ -219,6 +239,23 @@ export const SELECT_BANK_ACCOUNT_NUMBER = {
   accountNumberKeyId: true,
 } as const;
 
+// --- PartnerOrganisation (the person responsible, PKS pasal 3.2) ---------------
+
+export function sealResponsiblePersonPhone(
+  phone: string | null,
+): Sealed<'responsiblePersonPhoneCiphertext', 'responsiblePersonPhoneKeyId'> {
+  return seal(RESPONSIBLE_PERSON_PHONE, phone) as ReturnType<typeof sealResponsiblePersonPhone>;
+}
+export function readResponsiblePersonPhone(
+  row: Sealed<'responsiblePersonPhoneCiphertext', 'responsiblePersonPhoneKeyId'>,
+): string | null {
+  return read(RESPONSIBLE_PERSON_PHONE, row);
+}
+export const SELECT_RESPONSIBLE_PERSON_PHONE = {
+  responsiblePersonPhoneCiphertext: true,
+  responsiblePersonPhoneKeyId: true,
+} as const;
+
 // --- Refund (a Donor's destination account, recorded at approval) ------------
 
 /**
@@ -313,6 +350,24 @@ export function lookupInquiryContactEmail(email: string): Lookup<'contactEmailHm
   return lookup(CONTACT_EMAIL, email) as Lookup<'contactEmailHmac', 'contactEmailHmacKeyId'>;
 }
 export const SELECT_INQUIRY_CONTACT_EMAIL = { contactEmailCiphertext: true, contactEmailKeyId: true } as const;
+
+/**
+ * A company's address and NPWP on its Inquiry (pks-pemenuhan/17). Ciphertext
+ * only, like the contact phone: neither is ever searched, so neither gets an
+ * HMAC. Both optional, hence nullable.
+ */
+export function sealInquiryCompanyAddress(address: string | null): Sealed<'companyAddressCiphertext', 'companyAddressKeyId'> {
+  return seal(COMPANY_ADDRESS, address) as Sealed<'companyAddressCiphertext', 'companyAddressKeyId'>;
+}
+export function sealInquiryCompanyNpwp(npwp: string | null): Sealed<'companyNpwpCiphertext', 'companyNpwpKeyId'> {
+  return seal(COMPANY_NPWP, npwp) as Sealed<'companyNpwpCiphertext', 'companyNpwpKeyId'>;
+}
+export function readInquiryCompanyAddress(row: Sealed<'companyAddressCiphertext', 'companyAddressKeyId'>): string | null {
+  return read(COMPANY_ADDRESS, row);
+}
+export function readInquiryCompanyNpwp(row: Sealed<'companyNpwpCiphertext', 'companyNpwpKeyId'>): string | null {
+  return read(COMPANY_NPWP, row);
+}
 
 // --- OrganisationInvitation (the address a team invitation was sent to) --------
 

@@ -23,10 +23,10 @@ export function suspensionEmail(input: SuspensionEmailInput): MailMessage {
   if (input.event === 'suspended') {
     return letter({
       to: input.to,
-      subject: `Campaign "${title}" dibekukan (Suspended)`,
+      subject: `Campaign "${title}" ditangguhkan (Suspended)`,
       greeting: greetingFor(input.fundraiserName),
       body: [
-        `Campaign "${input.campaignTitle}" dibekukan (Suspended) oleh Admin.`,
+        `Campaign "${input.campaignTitle}" ditangguhkan (Suspended) oleh Admin.`,
         reason,
         'Selama Suspended, Campaign tidak menerima donasi dan dananya tidak dapat dicairkan. Lihat Campaign Anda di tautan ini:',
       ],

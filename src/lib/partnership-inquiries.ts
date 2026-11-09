@@ -1,8 +1,14 @@
 import type { PartnershipInquiry, PrismaClient, Program } from "@/generated/prisma/client";
-import { sealInquiryContactEmail, sealInquiryContactPhone } from "./contact-fields";
+import {
+  sealInquiryCompanyAddress,
+  sealInquiryCompanyNpwp,
+  sealInquiryContactEmail,
+  sealInquiryContactPhone,
+} from "./contact-fields";
 import { MailerNotConfiguredError, sendReportingFailure, type Mailer } from "./mail";
 import { partnershipInquiryConfirmationEmail, partnershipInquiryEmail } from "./mail/partnership-inquiry";
 import { publicUrl } from "./public-url";
+import { assertInquiryProposalAcceptable, DocumentRefusedError, uploadInquiryProposal } from "./documents";
 
 /**
  * Partnership Inquiries (ticket csr-05; CONTEXT.md, Partnership Inquiry): a
@@ -28,7 +34,7 @@ export {
   type PartnershipInquiryStatusValue,
 } from './partnership-inquiry-status';
 
-import { INITIAL_INQUIRY_STATUS } from './partnership-inquiry-status';
+import { INITIAL_INQUIRY_STATUS, isBudgetRange, type PartnershipBudgetRangeValue } from './partnership-inquiry-status';
 
 export class PartnershipInquiryProgramNotFoundError extends Error {
   constructor() {
@@ -52,6 +58,11 @@ export function partnershipInquiryErrorToHttp(error: unknown): { status: number;
   if (error instanceof InvalidPartnershipInquiryInputError) {
     return { status: 400, error: error.message };
   }
+  // Only the "storage not configured" refusal escapes the create path; a bad
+  // file is turned into a 400 above it.
+  if (error instanceof DocumentRefusedError) {
+    return { status: error.status, error: error.message };
+  }
   return null;
 }
 
@@ -60,6 +71,46 @@ const MAX_NAME_LENGTH = 200;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_PHONE_LENGTH = 50;
 const MAX_NEEDS_LENGTH = 5000;
+const MAX_ADDRESS_LENGTH = 500;
+
+/** A calendar month as "YYYY-MM", the shape of an <input type="month">. */
+const MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** An optional budget range: one of the platform's ranges, never a free figure. */
+function cleanBudgetRange(value: unknown): PartnershipBudgetRangeValue | null {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) return null;
+  if (!isBudgetRange(value)) throw new InvalidPartnershipInquiryInputError('Kisaran anggaran tidak dikenal.');
+  return value;
+}
+
+/** The planned period: both months or neither, and the end not before the start. */
+function cleanPeriod(start: unknown, end: unknown): { periodStart: string | null; periodEnd: string | null } {
+  const blank = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  if (blank(start) && blank(end)) return { periodStart: null, periodEnd: null };
+  if (blank(start) || blank(end)) {
+    throw new InvalidPartnershipInquiryInputError('Periode harus berisi bulan mulai dan bulan selesai.');
+  }
+  if (typeof start !== 'string' || typeof end !== 'string' || !MONTH.test(start.trim()) || !MONTH.test(end.trim())) {
+    throw new InvalidPartnershipInquiryInputError('Periode harus berupa bulan dengan format TTTT-BB.');
+  }
+  const periodStart = start.trim();
+  const periodEnd = end.trim();
+  if (periodEnd < periodStart) {
+    throw new InvalidPartnershipInquiryInputError('Bulan selesai tidak boleh sebelum bulan mulai.');
+  }
+  return { periodStart, periodEnd };
+}
+
+/** An optional NPWP, kept as its digits: 15 (old format) or 16 (NIK-based) of them. */
+function cleanNpwp(value: unknown): string | null {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) return null;
+  if (typeof value !== 'string') throw new InvalidPartnershipInquiryInputError('NPWP harus berupa teks.');
+  const digits = value.replace(/[.\-\s]/g, '');
+  if (!/^\d{15,16}$/.test(digits)) {
+    throw new InvalidPartnershipInquiryInputError('NPWP harus terdiri dari 15 atau 16 digit.');
+  }
+  return digits;
+}
 
 /**
  * Deliberately loose, and answering one question only: is there a single `@`
@@ -115,6 +166,12 @@ export type PartnershipInquiryCreateInput = {
   contactEmail: unknown;
   contactPhone?: unknown;
   needs: unknown;
+  /** pks-pemenuhan/17, all optional: budget range, period, address and NPWP. */
+  budgetRange?: unknown;
+  periodStart?: unknown;
+  periodEnd?: unknown;
+  companyAddress?: unknown;
+  companyNpwp?: unknown;
 };
 
 type CleanedInquiry = {
@@ -124,6 +181,11 @@ type CleanedInquiry = {
   contactEmail: string;
   contactPhone: string | null;
   needs: string;
+  budgetRange: PartnershipBudgetRangeValue | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  companyAddress: string | null;
+  companyNpwp: string | null;
 };
 
 /** The Program fields the notification quotes; nothing else about it is read. */
@@ -196,8 +258,17 @@ export async function createPartnershipInquiry(
    * never from a request body: the public form's input type has no such field
    * and `input` is not read for it.
    */
-  options?: { companyId?: string },
-): Promise<PartnershipInquiry> {
+  options?: {
+    companyId?: string;
+    /**
+     * The proposal PDF (pks-pemenuhan/17). Checked before anything is written;
+     * stored as a private Document of the Inquiry once it exists.
+     */
+    proposal?: { bytes: Uint8Array; declaredType: string; size: number };
+    /** The Tim CSR member's user id; absent for the public form, which has no account. */
+    uploadedById?: string;
+  },
+): Promise<PartnershipInquiry & { proposalStored: boolean }> {
   const db = delegatesOf(prisma);
   const programId = cleanProgramId(input.programId);
   const cleaned: CleanedInquiry = {
@@ -213,10 +284,32 @@ export async function createPartnershipInquiry(
         nullable: true,
       }) as string | null | undefined) ?? null,
     needs: cleanText(input.needs, { field: 'Kebutuhan yang disampaikan', max: MAX_NEEDS_LENGTH, required: true }) as string,
+    budgetRange: cleanBudgetRange(input.budgetRange),
+    ...cleanPeriod(input.periodStart, input.periodEnd),
+    companyAddress:
+      (cleanText(input.companyAddress, {
+        field: 'Alamat perusahaan',
+        max: MAX_ADDRESS_LENGTH,
+        required: false,
+        nullable: true,
+      }) as string | null | undefined) ?? null,
+    companyNpwp: cleanNpwp(input.companyNpwp),
   };
 
   const program = await db.program.findUnique({ where: { id: programId } });
   if (!program) throw new PartnershipInquiryProgramNotFoundError();
+  if (options?.proposal) {
+    try {
+      assertInquiryProposalAcceptable(options.proposal);
+    } catch (error) {
+      // A file that is not an acceptable PDF is a mistake in the form: 400.
+      // A store that is not configured is ours: it stays the 503 it is.
+      if (error instanceof DocumentRefusedError && error.status !== 503) {
+        throw new InvalidPartnershipInquiryInputError(error.message);
+      }
+      throw error;
+    }
+  }
   await beforeWrite?.();
 
   // The contact details are sealed here, and the plaintext is not part of the
@@ -230,12 +323,39 @@ export async function createPartnershipInquiry(
       contactName: cleaned.contactName,
       needs: cleaned.needs,
       status: INITIAL_INQUIRY_STATUS,
+      budgetRange: cleaned.budgetRange,
+      periodStart: cleaned.periodStart,
+      periodEnd: cleaned.periodEnd,
+      ...sealInquiryCompanyAddress(cleaned.companyAddress),
+      ...sealInquiryCompanyNpwp(cleaned.companyNpwp),
       ...(options?.companyId ? { companyId: options.companyId } : {}),
       ...sealInquiryContactEmail(cleaned.contactEmail),
       ...sealInquiryContactPhone(cleaned.contactPhone),
     },
   });
   const inquiryId = String(inquiry.id);
+
+  // The Inquiry stands whether or not the attachment does: a company that asked
+  // to discuss a collaboration has asked, and a retry would file it twice.
+  let proposalStored = false;
+  if (options?.proposal) {
+    try {
+      await uploadInquiryProposal(prisma, {
+        inquiryId,
+        uploadedById: options.uploadedById ?? null,
+        file: options.proposal,
+      });
+      proposalStored = true;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: 'partnership_inquiry_proposal_not_stored',
+          inquiryId,
+          error: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+    }
+  }
 
   await notifyPartnershipTeam(cleaned, program, inquiryId, mailer);
 
@@ -252,7 +372,7 @@ export async function createPartnershipInquiry(
     { mail: 'partnership_inquiry_confirmation', inquiryId },
     mailer,
   );
-  return inquiry;
+  return { ...inquiry, proposalStored };
 }
 
 async function notifyPartnershipTeam(

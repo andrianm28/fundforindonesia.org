@@ -236,7 +236,7 @@ describe.skipIf(!DATABASE_URL)('payment event paid after expiry -- against real 
 
   async function eventOf(eventId: string) {
     return prisma.webhookEvent.findUniqueOrThrow({
-      where: { provider_providerEventId: { provider: 'mock', providerEventId: eventId } },
+      where: { provider_merchantEntity_providerEventId: { provider: 'mock', merchantEntity: 'YAYASAN', providerEventId: eventId } },
     });
   }
 

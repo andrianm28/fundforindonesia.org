@@ -89,7 +89,7 @@ describe('editChecklistItem', () => {
       now: NOW,
     });
 
-    expect(item).toEqual({ id: 'rencana-anggaran', label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null, requiresDocument: false });
+    expect(item).toEqual({ id: 'rencana-anggaran', label: 'Rencana anggaran rinci', required: false, position: 2, active: true, kind: null, requiresDocument: false, requestKinds: ['SUBMISSION', 'CHANGE', 'AMOUNT_REVIEW'], applicant: null });
     expect(db.checklistAudits).toEqual([
       {
         id: expect.any(String),
@@ -337,7 +337,7 @@ describe('existing Verification Requests keep their snapshot', () => {
       checklistItems: SEEDED,
     });
     const fundraiser = { userId: 'creator-1', assignments: [] };
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW });
     const snapshotAtSubmission = [
       { id: 'identitas-fundraiser', label: 'KTP Fundraiser', required: true, position: 1, ticked: false, requiresDocument: false },
       { id: 'rencana-anggaran', label: 'Rencana anggaran', required: true, position: 2, ticked: false, requiresDocument: false },
@@ -364,7 +364,7 @@ describe('existing Verification Requests keep their snapshot', () => {
     expect(db.verificationRequests[0].checklist).toEqual(snapshotAtSubmission);
     expect(db.verificationRequests).toEqual(before);
 
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-2', actor: fundraiser, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-2', truthStatement: true, actor: fundraiser, now: NOW });
     expect(db.verificationRequests[3].checklist).toEqual([
       { id: 'bukti-masalah', label: 'Bukti masalah', required: true, position: 2, ticked: false, requiresDocument: false },
       { id: 'rencana-anggaran', label: 'RAB rinci', required: false, position: 3, ticked: false, requiresDocument: false },

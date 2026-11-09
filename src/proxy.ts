@@ -1,6 +1,8 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import type { NextRequestWithAuth } from "next-auth/middleware";
+import { getToken } from "next-auth/jwt";
+import { MAINTENANCE_DEFAULT_MESSAGE, resolveOperations, zakatSwitchedOn } from "@/lib/operations";
 
 // Local type to avoid importing from @prisma/client (keeps the proxy lightweight)
 type Assignment = "ADMIN" | "VERIFIER";
@@ -93,7 +95,119 @@ async function answerExploreCategory(req: NextRequest, slug: string) {
   return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
 }
 
+// Modul zakat (PKS pemenuhan 19, ADR 0028): /zakat and everything under it
+// answers a literal 404 while the module is off, which is the default. Decided
+// here for the same reason as an unknown Category above: a notFound() in the
+// page would come behind the root loading.tsx, after the status was sent as
+// 200. Public path, never asks for a session. It fails CLOSED: a setting that
+// cannot be read in time means off.
+function isZakatPath(pathname: string): boolean {
+  return pathname === "/zakat" || pathname.startsWith("/zakat/");
+}
+
+async function zakatIsOn(): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), LOOKUP_TIMEOUT_MS);
+    });
+    return await Promise.race([zakatSwitchedOn(prisma), timeout]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function answerZakat(req: NextRequest) {
+  if (await zakatIsOn()) return NextResponse.next();
+  return NextResponse.rewrite(new URL("/_not-found", req.url), { status: 404 });
+}
+
+// Mode pemeliharaan (src/lib/operations.ts, PKS ticket 01). While it is on,
+// a write to the API is refused with 503 unless the caller is an Admin. Left
+// working on purpose: the Admin panel and its API (how maintenance is turned
+// off), the webhooks (a payment already under way must still be recorded),
+// health (the deploy script polls it), login/logout, the scheduled jobs and
+// the browser's error reports. A prefix counts only on a path-segment
+// boundary, so /api/administrasi is not /api/admin.
+const MAINTENANCE_EXEMPT = [
+  "/api/admin",
+  "/api/webhooks",
+  "/api/health",
+  "/api/auth",
+  "/api/internal",
+  "/api/client-error",
+  // Persetujuan Syarat/Privasi: tanpa ini, pengguna yang tertunda terkunci di
+  // halaman persetujuan selama pemeliharaan (tiket 07).
+  "/api/user/consent",
+];
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function isMaintenanceExempt(pathname: string): boolean {
+  return MAINTENANCE_EXEMPT.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+// Fail-open stays, but silently is not an option: an operator who turned
+// maintenance on and sees writes still arriving must be able to find why.
+// Class of failure only, no address or message (same style as rate_limit_unavailable).
+function warnMaintenanceUnreadable(reason: "error" | "timeout", error?: unknown) {
+  console.warn(
+    JSON.stringify({
+      event: "maintenance_lookup_failed",
+      reason,
+      policy: "open",
+      ...(error === undefined ? {} : { error: error instanceof Error ? error.name : "UnknownError" }),
+    }),
+  );
+}
+
+const MAINTENANCE_TIMED_OUT = Symbol("maintenance-timed-out");
+
+/** The maintenance message while it is on, or null (also when it cannot be read: fail open, with a warning). */
+async function maintenanceMessage(): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const timeout = new Promise<typeof MAINTENANCE_TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(MAINTENANCE_TIMED_OUT), LOOKUP_TIMEOUT_MS);
+    });
+    const operations = await Promise.race([resolveOperations(prisma), timeout]);
+    if (operations === MAINTENANCE_TIMED_OUT) {
+      warnMaintenanceUnreadable("timeout");
+      return null;
+    }
+    if (!operations || !operations.maintenance.on) return null;
+    return operations.maintenance.message || MAINTENANCE_DEFAULT_MESSAGE;
+  } catch (error) {
+    // Maintenance is a convenience for the operator: an unreadable row must not take the API down.
+    warnMaintenanceUnreadable("error", error);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function answerApi(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (SAFE_METHODS.has(req.method) || isMaintenanceExempt(pathname)) return NextResponse.next();
+
+  const message = await maintenanceMessage();
+  if (message === null) return NextResponse.next();
+
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET }).catch(() => null);
+  const assignments = (token?.assignments as Assignment[] | undefined) ?? [];
+  if (assignments.includes("ADMIN")) return NextResponse.next();
+
+  return NextResponse.json({ error: message }, { status: 503, headers: { "Retry-After": "300" } });
+}
+
 export default function proxy(req: NextRequest, event: NextFetchEvent) {
+  // The API is not behind the sign-in guard below (each route does its own
+  // auth); it only gets the maintenance answer.
+  if (req.nextUrl.pathname.startsWith("/api/")) return answerApi(req);
+  if (isZakatPath(req.nextUrl.pathname)) return answerZakat(req);
   const slug = exploreCategorySlug(req.nextUrl.pathname);
   if (slug === null) return authProxy(req as NextRequestWithAuth, event);
   return answerExploreCategory(req, slug);
@@ -113,5 +227,10 @@ export const config = {
     "/moderasi/:path*",
     // Not a guard: see answerExploreCategory.
     "/explore/:category",
+    // Not a guard either: the zakat module's 404 while it is off, see answerZakat.
+    "/zakat",
+    "/zakat/:path*",
+    // Not a guard either: only the maintenance answer, see answerApi.
+    "/api/:path*",
   ],
 };

@@ -1,5 +1,6 @@
 import { loadFieldKeys } from './field-encryption';
 import { betaSandboxEnvRefusals } from './payments/production-readiness';
+import { firstSetEnv, merchantEnvKeys } from './payments/merchant';
 
 /**
  * Boot-time environment check, called from src/instrumentation.ts (the Node
@@ -55,6 +56,26 @@ function checkAuthUrl(raw: string | undefined, problems: string[]): void {
   }
 }
 
+/**
+ * ADR 0027: each Sumopod merchant has its own webhook secret, and the signature
+ * check is what tells the two merchants' deliveries apart. The same secret on
+ * both makes a delivery signed for one verify on the other's URL; the Payment's
+ * own merchant check still stops it settling anything, but the separation then
+ * rests on one line of defence instead of two. That is a misconfiguration, not
+ * an unbootable one (BADAN_USAHA may legitimately be set up in stages), so it is
+ * logged loudly, never thrown, and the value is never echoed.
+ */
+function warnIfMerchantSecretsEqual(): void {
+  const yayasan = firstSetEnv(merchantEnvKeys('YAYASAN').webhookSecret);
+  const badanUsaha = firstSetEnv(merchantEnvKeys('BADAN_USAHA').webhookSecret);
+  if (yayasan && badanUsaha && yayasan.value === badanUsaha.value) {
+    console.warn(
+      `sumopod_merchant_secrets_equal: ${yayasan.key} and ${badanUsaha.key} hold the same webhook secret; ` +
+        'give each Sumopod merchant its own, so a delivery signed for one cannot verify on the other.',
+    );
+  }
+}
+
 export function assertProductionEnv(): void {
   if (process.env.NODE_ENV !== 'production') return;
   const problems: string[] = [];
@@ -89,6 +110,8 @@ export function assertProductionEnv(): void {
   // donor. Only while BETA_SANDBOX is on; at go-live the marker is removed and
   // the ordinary production rules apply.
   problems.push(...betaSandboxEnvRefusals());
+
+  warnIfMerchantSecretsEqual();
 
   if (problems.length > 0) {
     throw new Error(`Invalid production environment:\n- ${problems.join('\n- ')}`);

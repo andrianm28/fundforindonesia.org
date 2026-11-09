@@ -83,6 +83,7 @@ function makeRefundRow(overrides: Record<string, unknown> = {}) {
     payment: {
       amount: 100_000,
       providerFee: 5_000,
+      merchantEntity: 'YAYASAN',
       escrowReleasedAt: null,
       donation: { campaignId: 'campaign-1' },
       registration: null,
