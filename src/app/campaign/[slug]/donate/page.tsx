@@ -9,13 +9,13 @@ import { DonationAmountSelector } from '@/components/donation/DonationAmountSele
 import { PaymentMethodSelector } from '@/components/donation/PaymentMethodSelector';
 import { DonationConfirmation } from '@/components/donation/DonationConfirmation';
 import { useBetaSandbox } from '@/components/layout/BetaSandboxContext';
+import { useDonationPresets } from '@/components/donation/DonationPresetsContext';
 import { formatRupiah } from '@/lib/utils/currency';
 import { donationsEnabled, DONATIONS_DISABLED_MESSAGE, MIN_DONATION_AMOUNT } from '@/lib/donations';
 import { donationRefusalCopy, offersDonating, statusBannerCopy } from '@/lib/campaign-page-status';
 import { readCapturedTrafficSource } from '@/lib/traffic-source-capture';
 import type { PaymentMethod } from '@/types/donation';
 
-const PRESET_AMOUNTS = [20000, 50000, 100000, 250000, 500000];
 const MAX_AMOUNT = 1000000000;
 
 /**
@@ -47,6 +47,8 @@ export default function DonatePage() {
   // From the server through the layout's context, never from the environment
   // (ticket rilis-1-benda/92): the confirmation step says no real money moves.
   const betaSandbox = useBetaSandbox();
+  // The Admin's presets, read on the server by the layout (src/lib/operations.ts).
+  const presetAmounts = useDonationPresets();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -335,7 +337,7 @@ export default function DonatePage() {
         {/* Step 1: Amount Selection */}
         {currentStep === 1 && (
           <DonationAmountSelector
-            presets={PRESET_AMOUNTS}
+            presets={presetAmounts}
             minAmount={MIN_DONATION_AMOUNT}
             maxAmount={MAX_AMOUNT}
             selectedAmount={selectedAmount}

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
+import { MIN_DONATION_AMOUNT } from "@/lib/donations";
 
 /**
  * Setelan operasional: the two switches an Admin flips from the panel
@@ -16,6 +17,11 @@ import type { Prisma, PrismaClient } from "@/generated/prisma/client";
  *   maintenance    public pages show a banner and every non-Admin write route
  *                  refuses with 503 (src/proxy.ts). /admin, /api/admin, the
  *                  webhooks, health and login keep working.
+ *   donationPresets  the quick-pick amounts on the donate page (PKS pemenuhan,
+ *                  ticket 02): 3 to 8 whole-rupiah values, unique, ascending,
+ *                  each at least the minimum donation. A stored value that no
+ *                  longer qualifies (or is absent) falls back to the defaults
+ *                  for the presets only; the switches keep their stored values.
  *
  * One SiteSetting row, key `operations`, kept apart from Pengaturan Laman
  * Publik (src/lib/site-settings.ts): that module's schema does not know this
@@ -29,10 +35,32 @@ export const OPERATIONS_KEY = "operations";
 export const MAX_OPERATIONS_HISTORY = 50;
 export const MAX_MAINTENANCE_MESSAGE = 500;
 
+export const MIN_DONATION_PRESETS = 3;
+export const MAX_DONATION_PRESETS = 8;
+/** Same ceiling the donate page and POST /api/donations apply to one Donation. */
+export const MAX_DONATION_PRESET_AMOUNT = 1_000_000_000;
+export const DEFAULT_DONATION_PRESETS: readonly number[] = [20000, 50000, 100000, 250000, 500000];
+
+const rupiahList = z.array(z.number());
+
+const presetAmounts = z
+  .array(
+    z
+      .number({ error: "Nominal preset harus berupa angka." })
+      .int("Nominal preset harus bilangan bulat rupiah.")
+      .min(MIN_DONATION_AMOUNT, `Nominal preset minimal ${MIN_DONATION_AMOUNT.toLocaleString("id-ID")}.`)
+      .max(MAX_DONATION_PRESET_AMOUNT, `Nominal preset maksimal ${MAX_DONATION_PRESET_AMOUNT.toLocaleString("id-ID")}.`),
+    { error: "Preset nominal harus berupa daftar angka." },
+  )
+  .min(MIN_DONATION_PRESETS, `Preset nominal minimal ${MIN_DONATION_PRESETS} nilai.`)
+  .max(MAX_DONATION_PRESETS, `Preset nominal maksimal ${MAX_DONATION_PRESETS} nilai.`)
+  .refine((v) => new Set(v).size === v.length, "Preset nominal tidak boleh ada yang sama.")
+  .transform((v) => [...v].sort((a, b) => a - b));
+
 const change = z.object({
-  field: z.enum(["donationsOpen", "maintenanceOn", "maintenanceMessage"]),
-  from: z.union([z.boolean(), z.string()]),
-  to: z.union([z.boolean(), z.string()]),
+  field: z.enum(["donationsOpen", "maintenanceOn", "maintenanceMessage", "donationPresets"]),
+  from: z.union([z.boolean(), z.string(), rupiahList]),
+  to: z.union([z.boolean(), z.string(), rupiahList]),
 });
 
 const historyEntry = z.object({
@@ -45,6 +73,7 @@ const historyEntry = z.object({
 const operationsSchema = z.object({
   donationsOpen: z.boolean(),
   maintenance: z.object({ on: z.boolean(), message: z.string().max(MAX_MAINTENANCE_MESSAGE) }),
+  donationPresets: presetAmounts.catch(() => [...DEFAULT_DONATION_PRESETS]),
   history: z.array(historyEntry).max(MAX_OPERATIONS_HISTORY),
 });
 
@@ -57,6 +86,7 @@ const patchSchema = z
       .trim()
       .max(MAX_MAINTENANCE_MESSAGE, `Pesan maksimal ${MAX_MAINTENANCE_MESSAGE} karakter.`)
       .optional(),
+    donationPresets: presetAmounts.optional(),
   })
   .strict();
 
@@ -67,8 +97,16 @@ export type OperationsPatch = z.infer<typeof patchSchema>;
 export const DEFAULT_OPERATIONS: Operations = {
   donationsOpen: true,
   maintenance: { on: false, message: "" },
+  donationPresets: [...DEFAULT_DONATION_PRESETS],
   history: [],
 };
+
+export class OperationsConflictError extends Error {
+  constructor() {
+    super("Setelan berubah, muat ulang halaman lalu coba lagi.");
+    this.name = "OperationsConflictError";
+  }
+}
 
 export class InvalidOperationsError extends Error {
   constructor(message: string) {
@@ -79,12 +117,20 @@ export class InvalidOperationsError extends Error {
 
 type OperationsDb = Pick<PrismaClient, "siteSetting">;
 
+/** The row as stored (null: never written) with what it parses to, and its version. */
+async function readOperations(db: OperationsDb): Promise<{ operations: Operations; version: Date | null }> {
+  const row = await db.siteSetting.findUnique({ where: { key: OPERATIONS_KEY } });
+  if (!row) return { operations: structuredClone(DEFAULT_OPERATIONS), version: null };
+  const parsed = operationsSchema.safeParse(row.value);
+  return {
+    operations: parsed.success ? parsed.data : structuredClone(DEFAULT_OPERATIONS),
+    version: row.updatedAt,
+  };
+}
+
 /** The switches in force: the stored row if it parses, else the defaults. */
 export async function resolveOperations(db: OperationsDb): Promise<Operations> {
-  const row = await db.siteSetting.findUnique({ where: { key: OPERATIONS_KEY } });
-  if (!row) return structuredClone(DEFAULT_OPERATIONS);
-  const parsed = operationsSchema.safeParse(row.value);
-  return parsed.success ? parsed.data : structuredClone(DEFAULT_OPERATIONS);
+  return (await readOperations(db)).operations;
 }
 
 /**
@@ -97,6 +143,11 @@ export async function resolveOperationsOrDefaults(db: OperationsDb): Promise<Ope
   } catch {
     return structuredClone(DEFAULT_OPERATIONS);
   }
+}
+
+/** The quick-pick amounts for the donate page; the defaults if they cannot be read. */
+export async function resolveDonationPresetsOrDefaults(db: OperationsDb): Promise<number[]> {
+  return (await resolveOperationsOrDefaults(db)).donationPresets;
 }
 
 /**
@@ -132,7 +183,7 @@ export async function setOperations(
     throw new InvalidOperationsError("Tidak ada perubahan yang dikirim.");
   }
 
-  const current = await resolveOperations(db);
+  const { operations: current, version } = await readOperations(db);
   const next: Operations = structuredClone(current);
   const changes: OperationsHistoryEntry["changes"] = [];
 
@@ -149,6 +200,11 @@ export async function setOperations(
     changes.push({ field: "maintenanceMessage", from: current.maintenance.message, to: patch.maintenanceMessage });
   }
 
+  if (patch.donationPresets !== undefined && !sameList(patch.donationPresets, current.donationPresets)) {
+    next.donationPresets = patch.donationPresets;
+    changes.push({ field: "donationPresets", from: current.donationPresets, to: patch.donationPresets });
+  }
+
   if (changes.length === 0) return current;
 
   next.history = [
@@ -162,16 +218,34 @@ export async function setOperations(
   ].slice(0, MAX_OPERATIONS_HISTORY);
 
   const value = next as unknown as Prisma.InputJsonValue;
-  await db.siteSetting.upsert({
-    where: { key: OPERATIONS_KEY },
-    create: { key: OPERATIONS_KEY, value, updatedById: params.actorId },
-    update: { value, updatedById: params.actorId },
-  });
+  // Compare-and-set against the version read above, so two Admins saving at
+  // once cannot overwrite each other's history entry or flip a switch back:
+  // the second one is refused and reloads. No row yet: the create loses to a
+  // concurrent first write through the primary key.
+  if (version === null) {
+    try {
+      await db.siteSetting.create({ data: { key: OPERATIONS_KEY, value, updatedById: params.actorId } });
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code === "P2002") throw new OperationsConflictError();
+      throw error;
+    }
+  } else {
+    const { count } = await db.siteSetting.updateMany({
+      where: { key: OPERATIONS_KEY, updatedAt: version },
+      data: { value, updatedById: params.actorId },
+    });
+    if (count === 0) throw new OperationsConflictError();
+  }
   return next;
+}
+
+function sameList(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((n, i) => n === b[i]);
 }
 
 export function operationsErrorToHttp(error: unknown): { status: number; error: string } | null {
   if (error instanceof InvalidOperationsError) return { status: 400, error: error.message };
+  if (error instanceof OperationsConflictError) return { status: 409, error: error.message };
   return null;
 }
 

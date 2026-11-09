@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Pengaturan Operasional (src/lib/operations.ts, PKS ticket 01): the donation
- * switch and maintenance mode, changed by an Admin without a rebuild. The form
+ * switch, maintenance mode and donation presets, changed by an Admin without a rebuild. The form
  * posts to POST /api/admin/operations. Admin only: the
  * Admin layout answers anyone else with the same 404 as a missing page.
  */
@@ -16,9 +16,11 @@ const FIELD_LABEL: Record<OperationsHistoryEntry['changes'][number]['field'], st
   donationsOpen: 'Terima donasi',
   maintenanceOn: 'Mode pemeliharaan',
   maintenanceMessage: 'Pesan pemeliharaan',
+  donationPresets: 'Preset nominal donasi',
 };
 
-function show(field: OperationsHistoryEntry['changes'][number]['field'], v: boolean | string): string {
+function show(field: OperationsHistoryEntry['changes'][number]['field'], v: boolean | string | number[]): string {
+  if (Array.isArray(v)) return v.join(', ');
   if (field === 'maintenanceMessage') return v === '' ? '(kosong)' : `"${String(v)}"`;
   return v ? 'hidup' : 'mati';
 }
@@ -45,6 +47,7 @@ export default async function AdminOperationsPage() {
           donationsOpen: operations.donationsOpen,
           maintenanceOn: operations.maintenance.on,
           maintenanceMessage: operations.maintenance.message,
+          donationPresets: operations.donationPresets,
         }}
       />
 

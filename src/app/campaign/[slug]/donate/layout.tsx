@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
-import { donationsSwitchedOff } from '@/lib/operations';
+import { donationsSwitchedOff, resolveDonationPresetsOrDefaults } from '@/lib/operations';
+import { DonationPresetsProvider } from '@/components/donation/DonationPresetsContext';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,9 @@ export const dynamic = 'force-dynamic';
  * The Admin's switch (src/lib/operations.ts) is read at request time, so it is
  * decided here: while donations are switched off the donor sees the closed
  * message at once instead of an amount form the API would refuse. The API
- * stays the authoritative gate.
+ * stays the authoritative gate. The Admin's preset amounts are read here too
+ * and handed to the page through a context (a damaged or missing row shows the
+ * defaults).
  */
 export default async function DonateLayout({
   children,
@@ -30,5 +33,6 @@ export default async function DonateLayout({
       </div>
     );
   }
-  return <>{children}</>;
+  const presets = await resolveDonationPresetsOrDefaults(prisma);
+  return <DonationPresetsProvider presets={presets}>{children}</DonationPresetsProvider>;
 }

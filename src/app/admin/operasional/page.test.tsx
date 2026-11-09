@@ -61,7 +61,7 @@ describe('AdminOperationsPage', () => {
     expect(screen.getByText(/Terima donasi: hidup → mati/)).toBeDefined();
   });
 
-  it('posts the changed switches to the Admin API and refreshes', async () => {
+  it('posts only what the Admin changed to the Admin API and refreshes', async () => {
     vi.mocked(prisma.siteSetting.findUnique).mockResolvedValue(null);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchMock);
@@ -73,7 +73,7 @@ describe('AdminOperationsPage', () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/operations',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ donationsOpen: false, maintenanceOn: false, maintenanceMessage: '' }) }),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ donationsOpen: false }) }),
     );
   });
 
@@ -86,5 +86,55 @@ describe('AdminOperationsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Simpan' }));
 
     expect(await screen.findByText('Pesan maksimal 500 karakter.')).toBeDefined();
+  });
+
+  it('shows the donation presets in force, the old defaults when none were stored', async () => {
+    vi.mocked(prisma.siteSetting.findUnique).mockResolvedValue(null);
+
+    render(await AdminOperationsPage());
+
+    expect(screen.getByLabelText('Preset nominal donasi')).toHaveValue('20000, 50000, 100000, 250000, 500000');
+  });
+
+  it('shows stored presets and their change in the history', async () => {
+    stored({
+      donationsOpen: true,
+      maintenance: { on: false, message: '' },
+      donationPresets: [10000, 25000, 50000],
+      history: [
+        {
+          at: '2026-11-09T03:00:00.000Z',
+          actorId: 'a1',
+          actorName: 'Dewi Admin',
+          changes: [{ field: 'donationPresets', from: [20000, 50000, 100000], to: [10000, 25000, 50000] }],
+        },
+      ],
+    });
+
+    render(await AdminOperationsPage());
+
+    expect(screen.getByLabelText('Preset nominal donasi')).toHaveValue('10000, 25000, 50000');
+    expect(screen.getByText(/Preset nominal donasi: 20000, 50000, 100000 → 10000, 25000, 50000/)).toBeDefined();
+  });
+
+  it('posts edited presets as a list of numbers, and shows the server refusal for a bad list', async () => {
+    vi.mocked(prisma.siteSetting.findUnique).mockResolvedValue(null);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Preset nominal minimal 1.000.' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(await AdminOperationsPage());
+    const field = screen.getByLabelText('Preset nominal donasi');
+    fireEvent.change(field, { target: { value: '500, 10000, 25000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan' }));
+    expect(await screen.findByText('Preset nominal minimal 1.000.')).toBeDefined();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ donationPresets: [500, 10000, 25000] });
+
+    fireEvent.change(field, { target: { value: '5.000; 10000 25000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan' }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ donationPresets: [5000, 10000, 25000] });
   });
 });

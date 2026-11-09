@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { useDonationPresets } from '@/components/donation/DonationPresetsContext';
 
 /**
  * The donate page while an Admin has switched donations off (PKS ticket 01):
@@ -16,9 +17,13 @@ vi.mock('@/lib/prisma', () => ({
 import DonateLayout from './layout';
 import { DONATIONS_DISABLED_MESSAGE } from '@/lib/donations';
 
+function Probe() {
+  return <p>formulir donasi: {useDonationPresets().join(',')}</p>;
+}
+
 async function render(): Promise<string> {
   return renderToStaticMarkup(
-    await DonateLayout({ children: <p>formulir donasi</p>, params: Promise.resolve({ slug: 'banjir-demak' }) }),
+    await DonateLayout({ children: <Probe />, params: Promise.resolve({ slug: 'banjir-demak' }) }),
   );
 }
 
@@ -47,5 +52,20 @@ describe('donate layout', () => {
       value: { donationsOpen: true, maintenance: { on: false, message: '' }, history: [] },
     };
     expect(await render()).toContain('formulir donasi');
+  });
+
+  it('hands the stored presets to the page, and the defaults when the row is empty or damaged', async () => {
+    const row = (donationPresets: unknown) => ({
+      key: 'operations',
+      value: { donationsOpen: true, maintenance: { on: false, message: '' }, history: [], donationPresets },
+    });
+    holder.row = row([5000, 15000, 30000]);
+    expect(await render()).toContain('formulir donasi: 5000,15000,30000');
+
+    holder.row = row([5, 15000]);
+    expect(await render()).toContain('formulir donasi: 20000,50000,100000,250000,500000');
+
+    holder.row = null;
+    expect(await render()).toContain('formulir donasi: 20000,50000,100000,250000,500000');
   });
 });

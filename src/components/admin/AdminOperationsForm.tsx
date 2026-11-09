@@ -4,22 +4,43 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 /**
- * The two operational switches (src/lib/operations.ts): donations on/off and
- * maintenance mode with its message. Posts to POST /api/admin/operations;
+ * The operational settings (src/lib/operations.ts): donations on/off,
+ * maintenance mode with its message, and the donation preset amounts. Posts to POST /api/admin/operations;
  * validation lives only on the server, so the form shows the server's own
  * refusal rather than re-deriving the rules.
  */
 
-type Value = { donationsOpen: boolean; maintenanceOn: boolean; maintenanceMessage: string };
+type Value = { donationsOpen: boolean; maintenanceOn: boolean; maintenanceMessage: string; donationPresets: string };
+type Initial = Omit<Value, 'donationPresets'> & { donationPresets: number[] };
 
-export function AdminOperationsForm({ initial }: { initial: Value }) {
+/** "5.000; 10000 25000" -> [5000, 10000, 25000]; what is not a number goes up as null for the server to refuse. */
+function parsePresets(text: string): (number | null)[] {
+  return text
+    .split(/[,;\s]+/)
+    .filter((t) => t !== '')
+    .map((t) => {
+      const n = Number(t.replace(/\./g, ''));
+      return Number.isFinite(n) ? n : null;
+    });
+}
+
+export function AdminOperationsForm({ initial: initialProp }: { initial: Initial }) {
   const router = useRouter();
+  const initial: Value = { ...initialProp, donationPresets: initialProp.donationPresets.join(', ') };
   const [value, setValue] = useState<Value>(initial);
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const dirty = JSON.stringify(value) !== JSON.stringify(initial);
+  // Only what this Admin changed goes up, so a stale form never rewrites a
+  // setting another Admin changed meanwhile (the server also refuses a save
+  // that raced another with a 409).
+  const patch: Record<string, unknown> = {};
+  if (value.donationsOpen !== initial.donationsOpen) patch.donationsOpen = value.donationsOpen;
+  if (value.maintenanceOn !== initial.maintenanceOn) patch.maintenanceOn = value.maintenanceOn;
+  if (value.maintenanceMessage !== initial.maintenanceMessage) patch.maintenanceMessage = value.maintenanceMessage;
+  if (value.donationPresets !== initial.donationPresets) patch.donationPresets = parsePresets(value.donationPresets);
+  const dirty = Object.keys(patch).length > 0;
 
   function change(patch: Partial<Value>) {
     setValue((v) => ({ ...v, ...patch }));
@@ -34,7 +55,7 @@ export function AdminOperationsForm({ initial }: { initial: Value }) {
       const res = await fetch('/api/admin/operations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(value),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -96,6 +117,21 @@ export function AdminOperationsForm({ initial }: { initial: Value }) {
           />
           <span className="mt-1 block text-xs text-gray-500">Opsional. Kosong: pesan bawaan yang tampil.</span>
         </label>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Preset nominal donasi</h2>
+        <p className="mb-4 text-sm text-gray-600">
+          Tombol nominal cepat di halaman donasi: 3 sampai 8 angka rupiah, tidak boleh sama, masing-masing minimal
+          Rp1.000. Pisahkan dengan koma.
+        </p>
+        <input
+          type="text"
+          aria-label="Preset nominal donasi"
+          value={value.donationPresets}
+          onChange={(e) => change({ donationPresets: e.target.value })}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        />
       </section>
 
       <div className="flex items-center gap-3">
