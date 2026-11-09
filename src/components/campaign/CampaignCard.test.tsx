@@ -63,6 +63,15 @@ describe('CampaignCard', () => {
     expect(img).toBeDefined();
   });
 
+  it('lets the cover fill the card instead of a fixed 400x225 box', () => {
+    // A pinned 400px wrapper left the cover at half the card's width with an
+    // empty white band under it in the 3-column "Pilihan Kami" grid.
+    render(<CampaignCard campaign={mockCampaign} variant="standard" />);
+    const wrapper = screen.getByAltText(mockCampaign.title).parentElement as HTMLElement;
+    expect(wrapper.style.width).toBe('100%');
+    expect(wrapper.style.height).toBe('100%');
+  });
+
   it('renders creator name when showCreator is true (default)', () => {
     render(<CampaignCard campaign={mockCampaign} variant="standard" />);
     expect(screen.getByText(mockCampaign.creator.name)).toBeDefined();
