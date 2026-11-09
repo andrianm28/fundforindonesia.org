@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { readDocument, uploadDocument } from './documents';
@@ -159,6 +159,20 @@ describe('document bytes at rest', () => {
     await expect(read(db, row.id as string)).rejects.toThrow();
   });
 
+  it('serves a legacy plaintext file without any key configured', async () => {
+    const { db, row, path } = await upload();
+    await writeFile(path, PDF);
+    noKeys();
+    const got = await read(db, row.id as string);
+    expect(new Uint8Array(got!.bytes)).toEqual(PDF);
+  });
+
+  it('refuses a legacy plaintext file whose bytes are not the type on record, never serving it', async () => {
+    const { db, row, path } = await upload();
+    await writeFile(path, Buffer.from('<html><script>alert(1)</script></html>'));
+    await expect(read(db, row.id as string)).rejects.toThrow(/failed verification|not a/i);
+  });
+
   it('still answers null for a missing file', async () => {
     const { db, row, path } = await upload();
     await rm(path);
@@ -181,9 +195,15 @@ describe('encryptStoredDocuments (migration of old files)', () => {
   const shard = name.slice(0, 2);
   const rel = `${shard}/${name}`;
 
+  const age = (path: string, seconds: number) => {
+    const t = new Date(Date.now() - seconds * 1000);
+    return utimes(path, t, t);
+  };
+
   it('seals plaintext files in place, skips sealed ones, ignores strangers, and is idempotent', async () => {
     await mkdir(join(root, shard), { recursive: true });
     await writeFile(join(root, rel), PDF);
+    await age(join(root, rel), 3600);
     await writeFile(join(root, 'README.txt'), 'not ours');
 
     const first = await encryptStoredDocuments(root);
@@ -193,6 +213,7 @@ describe('encryptStoredDocuments (migration of old files)', () => {
     expect(await readdir(join(root, shard))).toEqual([name]); // no temp left behind
     expect(await readFile(join(root, 'README.txt'), 'utf8')).toBe('not ours');
 
+    await age(join(root, rel), 3600);
     const second = await encryptStoredDocuments(root);
     expect(second).toEqual({ encrypted: 0, alreadySealed: 1, skipped: 1 });
     expect((await readFile(join(root, rel))).equals(sealed)).toBe(true);
@@ -204,5 +225,33 @@ describe('encryptStoredDocuments (migration of old files)', () => {
     await writeFile(join(root, rel), PDF);
     await expect(encryptStoredDocuments(root)).rejects.toThrow(/not configured/);
     expect(new Uint8Array(await readFile(join(root, rel)))).toEqual(PDF);
+  });
+
+  it('skips and logs a file modified under 60s ago, since a live upload may still own it', async () => {
+    await mkdir(join(root, shard), { recursive: true });
+    await writeFile(join(root, rel), PDF);
+    await age(join(root, rel), 5);
+    const log = vi.fn();
+    const result = await encryptStoredDocuments(root, { log });
+    expect(result).toEqual({ encrypted: 0, alreadySealed: 0, skipped: 1 });
+    expect(new Uint8Array(await readFile(join(root, rel)))).toEqual(PDF);
+    expect(log.mock.calls.flat().join(' ')).toContain(rel);
+  });
+
+  it('keeps the original file mode and leaves a file that opens back to the original bytes', async () => {
+    await mkdir(join(root, shard), { recursive: true });
+    await writeFile(join(root, rel), PDF);
+    await chmod(join(root, rel), 0o640);
+    await age(join(root, rel), 3600);
+    await encryptStoredDocuments(root);
+    expect((await stat(join(root, rel))).mode & 0o777).toBe(0o640);
+    useKeys();
+    const db = fakePrisma();
+    db.documents.push({
+      id: 'd1', uploadedById: 'fr', campaignId: null, partnerOrganisationId: null,
+      contentType: 'application/pdf', storagePath: rel,
+    });
+    const got = await readDocument(db.prisma as never, { documentId: 'd1', viewer, root });
+    expect(new Uint8Array(got!.bytes)).toEqual(PDF);
   });
 });

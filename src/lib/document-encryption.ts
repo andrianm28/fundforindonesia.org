@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { open, readdir, readFile, rename, unlink } from 'fs/promises';
+import { open, readdir, readFile, rename, stat, unlink } from 'fs/promises';
 import { join } from 'path';
 import { requireFieldKeys } from './contact-fields';
 import type { FieldKeys } from './field-encryption';
@@ -69,15 +69,46 @@ const NAME = /^[0-9a-f]{64}$/;
 
 export type EncryptStoredResult = { encrypted: number; alreadySealed: number; skipped: number };
 
+export type EncryptStoredOptions = {
+  /** Files modified more recently than this are left to the live app (default 60s). */
+  minAgeMs?: number;
+  log?: (message: string) => void;
+};
+
+/** fsync a directory so a rename in it survives a crash. Best effort where the platform refuses. */
+async function syncDirectory(dir: string): Promise<void> {
+  let handle;
+  try {
+    handle = await open(dir, 'r');
+    await handle.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EINVAL' && code !== 'EISDIR' && code !== 'EPERM') throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
 /**
- * Seals every plaintext document under `root` in place (temp file in the same
- * directory, then rename, so a crash leaves the old file or the new one).
- * Idempotent: sealed files are left alone. Anything that is not a
- * `<2 hex>/<64 hex>` file is counted as skipped and never touched. Refuses to
- * start without a key.
+ * Seals every plaintext document under `root` in place. Run it with
+ * maintenance mode on: a file modified in the last `minAgeMs` (60s) is skipped
+ * and logged, and one that changes while it is being sealed is abandoned, but
+ * only maintenance mode really stops a live upload racing the rename.
+ *
+ * Per file: seal to a temp file in the same directory (original mode and
+ * owner), fsync it, decrypt it again and compare with the original bytes, and
+ * only then rename over the original and fsync the directory, so a crash
+ * leaves the old file or a verified new one. Idempotent: sealed files are left
+ * alone. Anything that is not a `<2 hex>/<64 hex>` file is counted as skipped
+ * and never touched. Refuses to start without a key.
  */
-export async function encryptStoredDocuments(root: string): Promise<EncryptStoredResult> {
+export async function encryptStoredDocuments(
+  root: string,
+  options: EncryptStoredOptions = {},
+): Promise<EncryptStoredResult> {
   const keys = requireFieldKeys();
+  const minAgeMs = options.minAgeMs ?? 60_000;
+  const log = options.log ?? (() => undefined);
   const result: EncryptStoredResult = { encrypted: 0, alreadySealed: 0, skipped: 0 };
 
   for (const shard of await readdir(root, { withFileTypes: true })) {
@@ -91,23 +122,49 @@ export async function encryptStoredDocuments(root: string): Promise<EncryptStore
         result.skipped += 1;
         continue;
       }
+      const storagePath = `${shard.name}/${entry.name}`;
       const full = join(dir, entry.name);
+      const before = await stat(full);
+      if (Date.now() - before.mtimeMs < minAgeMs) {
+        log(`skipped ${storagePath}: modified under ${Math.round(minAgeMs / 1000)}s ago (live upload?)`);
+        result.skipped += 1;
+        continue;
+      }
       const current = await readFile(full);
       if (isSealedDocument(current)) {
         result.alreadySealed += 1;
         continue;
       }
-      const sealed = sealDocumentBytes(keys, `${shard.name}/${entry.name}`, current);
+      const sealed = sealDocumentBytes(keys, storagePath, current);
       const temp = join(dir, `.tmp-${randomBytes(8).toString('hex')}`);
       try {
-        const handle = await open(temp, 'wx', 0o600);
+        const handle = await open(temp, 'wx', before.mode & 0o777);
         try {
           await handle.writeFile(sealed);
+          await handle.chmod(before.mode & 0o777);
+          try {
+            await handle.chown(before.uid, before.gid);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+            log(`warning: could not keep owner ${before.uid}:${before.gid} on ${storagePath} (EPERM)`);
+          }
           await handle.sync();
         } finally {
           await handle.close();
         }
+        // The sealed copy must open back to exactly the bytes it replaces.
+        const roundTrip = openDocumentBytes(keys, storagePath, await readFile(temp));
+        if (!roundTrip.equals(current)) throw new Error(`Sealed copy of ${storagePath} does not match the original`);
+        // A write that landed since we read it would be lost by the rename.
+        const after = await stat(full);
+        if (after.mtimeMs !== before.mtimeMs || after.size !== before.size) {
+          await unlink(temp).catch(() => undefined);
+          log(`skipped ${storagePath}: changed while being sealed`);
+          result.skipped += 1;
+          continue;
+        }
         await rename(temp, full);
+        await syncDirectory(dir);
       } catch (error) {
         await unlink(temp).catch(() => undefined);
         throw error;

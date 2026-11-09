@@ -6,7 +6,7 @@ import { hasAssignment } from "./assignment";
 import { sniffImageType } from "./uploads";
 import { DOCUMENT_UPLOADABLE_STATUSES } from "./document-uploadable-statuses";
 import { requireFieldKeys } from "./contact-fields";
-import { openDocumentBytes, sealDocumentBytes } from "./document-encryption";
+import { DocumentIntegrityError, isSealedDocument, openDocumentBytes, sealDocumentBytes } from "./document-encryption";
 
 export { DOCUMENT_UPLOADABLE_STATUSES };
 
@@ -370,11 +370,22 @@ export async function readDocument(
     console.error(`Document ${document.id}: stored file is missing or unreadable`);
     return null;
   }
-  // Throws DocumentIntegrityError for a sealed file that does not verify (or a
-  // missing key): the caller answers 500, never the bytes.
-  return {
-    id: document.id,
-    contentType: document.contentType,
-    bytes: openDocumentBytes(requireFieldKeys(), document.storagePath, stored),
-  };
+  // The header decides: only a sealed file needs the keyring, so legacy
+  // plaintext is still served with no key configured.
+  if (isSealedDocument(stored)) {
+    // Throws DocumentIntegrityError for a sealed file that does not verify (or
+    // a missing key): the caller answers 500, never the bytes.
+    return {
+      id: document.id,
+      contentType: document.contentType,
+      bytes: openDocumentBytes(requireFieldKeys(), document.storagePath, stored),
+    };
+  }
+  // A legacy file gets the sniff an upload gets: it is served only if it is
+  // the type on record.
+  if (sniffDocumentType(stored) !== document.contentType) {
+    console.error(`Document ${document.id}: legacy plaintext file is not the type on record`);
+    throw new DocumentIntegrityError(`Stored document ${document.storagePath} failed verification: content type mismatch`);
+  }
+  return { id: document.id, contentType: document.contentType, bytes: stored };
 }

@@ -35,7 +35,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: 'Not Found' }, { status: 404 });
   }
 
-  return new NextResponse(new Uint8Array(found.bytes), {
+  return new NextResponse((new Uint8Array(found.bytes.buffer, found.bytes.byteOffset, found.bytes.byteLength) as Uint8Array<ArrayBuffer>), {
     status: 200,
     headers: {
       'Content-Type': found.contentType,
