@@ -119,7 +119,7 @@ describe('createPartnershipInquiry', () => {
     expect(inquiries).toHaveLength(1);
   });
 
-  it('starts the follow-up status at not-yet-followed-up, whatever the company sent', async () => {
+  it('starts the pipeline stage at Baru, whatever the company sent', async () => {
     const { db } = makeDb();
 
     const inquiry = await createPartnershipInquiry(
@@ -128,8 +128,8 @@ describe('createPartnershipInquiry', () => {
       mailer,
     );
 
-    expect(inquiry.status).toBe('NOT_YET_FOLLOWED_UP');
-    expect(INITIAL_INQUIRY_STATUS).toBe('NOT_YET_FOLLOWED_UP');
+    expect(inquiry.status).toBe('NEW');
+    expect(INITIAL_INQUIRY_STATUS).toBe('NEW');
   });
 
   it('notifies the partnership team through the Mailer', async () => {

@@ -47,7 +47,7 @@ Pengelompokan Program CSR: Health, Education, Environment, Disability Inclusion.
 _Avoid_: Category
 
 **Partnership Inquiry**:
-Pengajuan diskusi dari sebuah perusahaan atas satu Program, dengan status tindak lanjut oleh tim kemitraan.
+Pengajuan diskusi dari sebuah perusahaan atas satu Program, yang dikerjakan tim kemitraan sebagai pipeline 8 tahap (PKS Pasal 3.6): Baru, Dihubungi, Proposal, Negosiasi, Disetujui, Berjalan, Selesai, Tidak dilanjutkan. Formulirnya (publik dan akun Tim CSR) memuat kisaran anggaran (pilihan rentang), periode (bulan mulai dan selesai), proposal PDF (Document privat, hanya Admin dan pengunggah yang bisa membuka), serta alamat dan NPWP perusahaan (opsional, terenkripsi seperti kontak, ADR 0012). Seorang Admin ditetapkan sebagai PIC; tiap perubahan tahap atau PIC memuat catatan tindak lanjut dan tercatat di riwayat (siapa, kapan). Perpindahan tahap bebas maju atau mundur, kecuali keluar dari Selesai atau Tidak dilanjutkan, yang wajib beralasan.
 _Avoid_: Lead, contact form, discuss with team (nama CTA, bukan entitas)
 
 **Asset Waqf Inquiry**:

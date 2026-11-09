@@ -255,7 +255,7 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
       const row = await prisma.partnershipInquiry.findFirstOrThrow({ where: { company: { emailDomain: 'alpha.co.id' } } });
       expect(row.companyName).toBe('Alpha');
       expect(row.contactName).toBe('Rina Alpha');
-      expect(row.status).toBe('NOT_YET_FOLLOWED_UP');
+      expect(row.status).toBe('NEW');
       expect(mails.some((m) => m.to === 'rina@alpha.co.id')).toBe(true);
     });
 
@@ -269,15 +269,15 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
 
       const betaInquiry = await prisma.partnershipInquiry.findFirstOrThrow({ where: { company: { emailDomain: 'beta.co.id' } } });
       const admin = await makeUser('admin@platform.example');
-      await followUp.followUpPartnershipInquiry(prisma, { inquiryId: betaInquiry.id, to: 'IN_PROGRESS', actorId: admin });
+      await followUp.updatePartnershipInquiry(prisma, { inquiryId: betaInquiry.id, status: 'CONTACTED', actorId: admin });
 
       as(beta);
       const betaBody = await (await inquiriesRoute.GET()).json();
       expect(betaBody.inquiries).toHaveLength(1);
-      expect(betaBody.inquiries[0].status).toBe('IN_PROGRESS');
+      expect(betaBody.inquiries[0].status).toBe('CONTACTED');
       expect(betaBody.inquiries[0].history.map((h: { status: string }) => h.status)).toEqual([
-        'NOT_YET_FOLLOWED_UP',
-        'IN_PROGRESS',
+        'NEW',
+        'CONTACTED',
       ]);
       expect(JSON.stringify(betaBody)).not.toContain(admin);
 
@@ -365,8 +365,8 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
         where: { OR: [{ programId: funded }, { programId: other }] },
       });
       for (const inquiry of inquiries) {
-        await followUp.followUpPartnershipInquiry(prisma, { inquiryId: inquiry.id, to: 'IN_PROGRESS', actorId: admin });
-        await followUp.followUpPartnershipInquiry(prisma, { inquiryId: inquiry.id, to: 'DONE', actorId: admin });
+        await followUp.updatePartnershipInquiry(prisma, { inquiryId: inquiry.id, status: 'CONTACTED', actorId: admin });
+        await followUp.updatePartnershipInquiry(prisma, { inquiryId: inquiry.id, status: 'DONE', actorId: admin });
       }
 
       as(member);
@@ -415,7 +415,7 @@ describe.skipIf(!DATABASE_URL)('Tim CSR accounts -- against real Postgres (E9/01
       expect(await prisma.companyMembership.count({ where: { companyId: company.id } })).toBe(0);
       expect((await prisma.company.findUniqueOrThrow({ where: { id: company.id } })).anonymisedAt).not.toBeNull();
       // the money-free business record stays: the Inquiry, its Program, its status
-      expect(inquiry.status).toBe('NOT_YET_FOLLOWED_UP');
+      expect(inquiry.status).toBe('NEW');
 
       as(member);
       expect((await inquiriesRoute.GET()).status).toBe(404);

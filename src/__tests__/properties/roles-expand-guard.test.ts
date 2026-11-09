@@ -79,6 +79,17 @@ import { join } from "node:path";
  * a queue of companies and the people at them is nobody else's to read, and
  * growing this list by two.
  *
+ * NOTE (pks-pemenuhan/17): the CSR pipeline adds no route file to this list. It
+ * widens the two entries above: `GET /api/admin/partnership-inquiries` now also
+ * answers the Admin users who may be named PIC, `PATCH .../[id]` takes
+ * `{ status, picId, note }` (any of the eight stages; a PIC must hold ADMIN), and
+ * `GET .../[id]` is the Admin-only detail that reads the sealed contact, address
+ * and NPWP back. All three sit behind the same ADMIN gate, and a signed-in person
+ * without it gets the literal 404 (never 403). `POST /api/partnership-inquiries`
+ * (public) and `POST /api/csr/inquiries` (verified Tim CSR member) stay outside
+ * this list on purpose: they hold no assignment, take a proposal PDF as
+ * multipart, and the public one keeps its rate limits and honeypot.
+ *
  * NOTE (prd-compliance 34): the two Manual Contribution routes ask for the
  * ADMIN assignment too. Recording money that arrived outside the gateway and
  * deciding it are both in the Admin's remit in CONTEXT.md and neither in the

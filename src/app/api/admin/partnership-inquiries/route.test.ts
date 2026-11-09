@@ -35,6 +35,8 @@ function loadDb(seed: Parameters<typeof makeInquiryDb>[0]) {
   const target = prisma as unknown as Record<string, unknown>;
   target.partnershipInquiry = db.prisma.partnershipInquiry;
   target.partnershipInquiryStatusChange = db.prisma.partnershipInquiryStatusChange;
+  target.userAssignment = db.prisma.userAssignment;
+  target.document = db.prisma.document;
   target.$transaction = db.prisma.$transaction;
   return db;
 }
@@ -48,7 +50,7 @@ beforeEach(() => {
       inquiryRow({
         id: "inquiry-2",
         companyName: "PT Bumi Hijau",
-        status: "IN_PROGRESS",
+        status: "CONTACTED",
         createdAt: new Date("2026-09-25T00:00:00Z"),
       }),
     ],
@@ -56,7 +58,7 @@ beforeEach(() => {
       inquiryChangeRow({
         id: "change-1",
         inquiryId: "inquiry-2",
-        toStatus: "IN_PROGRESS",
+        toStatus: "CONTACTED",
         actedById: "admin-2",
         actedAt: new Date("2026-09-26T00:00:00Z"),
       }),
@@ -83,14 +85,14 @@ describe("GET /api/admin/partnership-inquiries", () => {
       expect.objectContaining({
         id: "inquiry-2",
         companyName: "PT Bumi Hijau",
-        status: "IN_PROGRESS",
+        status: "CONTACTED",
         program: expect.objectContaining(programOfInquiry()),
         lastStatusChange: expect.objectContaining({ actedByName: "Bagas Kemitraan" }),
       }),
       expect.objectContaining({
         id: "inquiry-1",
         companyName: "PT Sinar Abadi",
-        status: "NOT_YET_FOLLOWED_UP",
+        status: "NEW",
         lastStatusChange: null,
       }),
     ]);
@@ -102,7 +104,21 @@ describe("GET /api/admin/partnership-inquiries", () => {
     const res = await get();
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ inquiries: [] });
+    expect(await res.json()).toEqual({ inquiries: [], pics: expect.any(Array) });
+  });
+
+  it("also lists the Admin users who may be named PIC, and no one else", async () => {
+    loadDb({ users: [userRow(), userRow({ id: "fundraiser-1", name: "Siti Penggalang" })], adminIds: ["admin-1"] });
+
+    const { pics } = (await (await get()).json()) as { pics: { id: string }[] };
+
+    expect(pics).toEqual([{ id: "admin-1", name: "Dewi Partnership" }]);
+  });
+
+  it("never carries the contact details, address or NPWP of a company", async () => {
+    const text = JSON.stringify(await (await get()).json());
+
+    expect(text).not.toMatch(/Ciphertext|rina@|\+62 812/);
   });
 
   it("refuses anyone without a session, and anyone without the ADMIN assignment", async () => {

@@ -25,6 +25,11 @@ export { DOCUMENT_UPLOADABLE_STATUSES };
  * A third kind (PKS Pasal 4.5): a supporting paper for a Payout request, readable
  * by its uploader (the Payout's Fundraiser) and an Admin only.
  *
+ * A fourth (PKS Pasal 3.6, pks-pemenuhan/17): the proposal PDF of a Partnership
+ * Inquiry, readable by an Admin and by the Tim CSR member who uploaded it. A
+ * company on the public form has no account, so such a document may have no
+ * uploader at all; then only an Admin can open it.
+ *
  * Who may open one (`canReadDocument`): its uploader, an Admin, and
  *   - for a Campaign document: the Campaign's Fundraiser, and a Verifier while
  *     the Campaign has a Verification Request open, or who decided one of its
@@ -117,10 +122,11 @@ export type DocumentViewer = { id: string; assignments: Assignment[] | undefined
 
 /** The document fields the ACL needs, with the owner's own facts. */
 type DocumentForAcl = {
-  uploadedById: string;
+  uploadedById: string | null;
   campaignId: string | null;
   partnerOrganisationId: string | null;
   payoutId?: string | null;
+  partnershipInquiryId?: string | null;
 };
 
 /**
@@ -135,6 +141,10 @@ export async function canReadDocument(
 ): Promise<boolean> {
   if (document.uploadedById === viewer.id) return true;
   if (hasAssignment(viewer.assignments, Assignment.ADMIN)) return true;
+
+  // A Partnership Inquiry's proposal (PKS Pasal 3.6): the uploader and an
+  // Admin, both settled above, and nobody else. Not a Verifier.
+  if (document.partnershipInquiryId) return false;
 
   // A Payout's supporting paper (PKS Pasal 4.5) is bank and money material:
   // its uploader, the Payout's Fundraiser and an Admin, and nobody else. Not a
@@ -382,9 +392,41 @@ export async function uploadDocument(
     throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
   }
 
+  return persistDocument(prisma, {
+    root,
+    keys,
+    bytes: params.file.bytes,
+    contentType,
+    uploadedById: params.actor.id,
+    owner,
+  });
+}
+
+type Owner = {
+  label: string;
+  campaignId: string | null;
+  partnerOrganisationId: string | null;
+  payoutId: string | null;
+  partnershipInquiryId?: string | null;
+  checklistItemId: string | null;
+};
+
+/** Seals the bytes under a fresh random name, then records the row; the file goes if the row fails. */
+async function persistDocument(
+  prisma: PrismaClient,
+  params: {
+    root: string;
+    keys: ReturnType<typeof requireFieldKeys>;
+    bytes: Uint8Array;
+    contentType: DocumentContentType;
+    uploadedById: string | null;
+    owner: Owner;
+  },
+): Promise<DocumentSummary> {
+  const { root, keys, owner } = params;
   const storagePath = newStoragePath();
   const full = absoluteStoragePath(root, storagePath)!;
-  const sealed = sealDocumentBytes(keys, storagePath, params.file.bytes);
+  const sealed = sealDocumentBytes(keys, storagePath, params.bytes);
   await mkdir(dirname(full), { recursive: true, mode: 0o700 });
   try {
     await writeFile(full, sealed, { mode: 0o600, flag: "wx" });
@@ -395,14 +437,15 @@ export async function uploadDocument(
   }
 
   const data = {
-    uploadedById: params.actor.id,
+    uploadedById: params.uploadedById,
     campaignId: owner.campaignId,
     partnerOrganisationId: owner.partnerOrganisationId,
     payoutId: owner.payoutId,
+    partnershipInquiryId: owner.partnershipInquiryId ?? null,
     checklistItemId: owner.checklistItemId,
     label: owner.label,
-    contentType,
-    sizeBytes: params.file.bytes.byteLength,
+    contentType: params.contentType,
+    sizeBytes: params.bytes.byteLength,
     storagePath,
   };
   try {
@@ -412,9 +455,10 @@ export async function uploadDocument(
       // transaction: a decision either committed first (refused here) or waits
       // for this commit, so no paper lands on a decided Payout.
       const payoutId = owner.payoutId;
+      const uploaderId = params.uploadedById ?? "";
       return await prisma.$transaction(async (tx) => {
         const rows = await tx.$queryRaw<Array<{ requestedById: string; status: string }>>`SELECT "requestedById", status::text AS status FROM "Payout" WHERE id = ${payoutId} FOR UPDATE`;
-        assertPayoutTakesPapers(rows[0], params.actor.id);
+        assertPayoutTakesPapers(rows[0], uploaderId);
         return tx.document.create({ data, select: SUMMARY });
       });
     }
@@ -423,6 +467,73 @@ export async function uploadDocument(
     await unlink(full).catch(() => undefined);
     throw error;
   }
+}
+
+/** The label a proposal is stored under. */
+export const INQUIRY_PROPOSAL_LABEL = "Proposal kolaborasi";
+
+/**
+ * Whether a proposal could be stored, answered before anything is written: the
+ * store is configured and the file is a PDF by its bytes. The Inquiry's create
+ * path calls it ahead of its own write so that a bad attachment leaves no
+ * Inquiry behind.
+ */
+export function assertInquiryProposalAcceptable(file: FileInput, root: string | null | undefined = undefined): void {
+  const where = root === undefined ? documentRoot() : root;
+  if (!where) throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+  if (validateDocumentFile(file) !== "application/pdf") {
+    throw new DocumentRefusedError("Proposal harus berupa berkas PDF.", 415);
+  }
+}
+
+/**
+ * Stores the proposal PDF of a Partnership Inquiry (PKS Pasal 3.6). `uploadedById`
+ * is the Tim CSR member's own id, or null for the public form, which has no
+ * account. PDF only: a proposal is a document, not a picture, and the bytes
+ * must be a PDF whatever the browser claimed. The caller (the Inquiry's own
+ * create path) has already authorised the write; this checks the file, the
+ * Inquiry and the store, and answers a DocumentRefusedError for each.
+ */
+export async function uploadInquiryProposal(
+  prisma: PrismaClient,
+  params: { inquiryId: string; uploadedById: string | null; file: FileInput; root?: string | null },
+): Promise<DocumentSummary> {
+  const root = params.root === undefined ? documentRoot() : params.root;
+  if (!root) throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+
+  const contentType = validateDocumentFile(params.file);
+  if (contentType !== "application/pdf") {
+    throw new DocumentRefusedError("Proposal harus berupa berkas PDF.", 415);
+  }
+  const inquiry = await prisma.partnershipInquiry.findUnique({
+    where: { id: params.inquiryId },
+    select: { id: true },
+  });
+  if (!inquiry) throw new DocumentRefusedError("Partnership Inquiry tidak ditemukan.", 404);
+
+  let keys: ReturnType<typeof requireFieldKeys>;
+  try {
+    keys = requireFieldKeys();
+  } catch (error) {
+    console.error("Proposal upload refused: field encryption is not configured", error);
+    throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+  }
+
+  return persistDocument(prisma, {
+    root,
+    keys,
+    bytes: params.file.bytes,
+    contentType,
+    uploadedById: params.uploadedById,
+    owner: {
+      label: INQUIRY_PROPOSAL_LABEL,
+      campaignId: null,
+      partnerOrganisationId: null,
+      payoutId: null,
+      partnershipInquiryId: inquiry.id,
+      checklistItemId: null,
+    },
+  });
 }
 
 /**
@@ -442,6 +553,7 @@ export async function readDocument(
       campaignId: true,
       partnerOrganisationId: true,
       payoutId: true,
+      partnershipInquiryId: true,
       contentType: true,
       storagePath: true,
     },

@@ -13,11 +13,14 @@
 
 ## Menindaklanjuti Partnership Inquiry
 
-Inquiry datang dari formulir publik perusahaan atas satu Program. Tiap baris menampilkan Program, kontak yang disebut, status, dan siapa yang terakhir memindahkannya.
+Inquiry datang dari formulir publik perusahaan atau dari akun Tim CSR atas satu Program. Halaman ini berupa **pipeline**: satu kolom per tahap (Baru, Dihubungi, Proposal, Negosiasi, Disetujui, Berjalan, Selesai, Tidak dilanjutkan), dan tiap Inquiry berupa kartu berisi Program, narahubung, kisaran anggaran, periode, tanda proposal terlampir, dan PIC.
 
-1. Status berjalan satu arah: **Belum ditindaklanjuti** menjadi **Ditindaklanjuti**, lalu **Selesai**. Tiap baris hanya menawarkan satu langkah maju; Inquiry Selesai tidak menawarkan apa pun.
-2. Hubungi perusahaan lewat kontak yang tercantum (di luar platform), lalu tekan tombol langkah berikutnya.
-3. Setelah menekan, daftar dimuat ulang dari database; bila Admin lain sudah memindahkannya lebih dulu, langkah Anda ditolak dan layar menampilkan keadaan terbaru.
+1. Tekan **Kelola** pada kartu untuk membuka rincian: kontak, alamat dan NPWP perusahaan (hanya Admin yang melihatnya), kebutuhan, proposal PDF (tautan, dibuka lewat akses privat), dan riwayat perubahan beserta catatannya.
+2. Ubah **Tahap**, pilih **PIC** (hanya pengguna Admin), dan tulis **Catatan tindak lanjut**, lalu **Simpan perubahan**. Satu simpanan menjadi satu entri riwayat (siapa, kapan, apa yang berubah).
+3. Tahap boleh dipindah maju atau mundur kapan saja. Satu pengecualian: memindahkan Inquiry **keluar dari Selesai atau Tidak dilanjutkan** wajib disertai alasan di catatan.
+4. Setelah menyimpan, pipeline dan rincian dimuat ulang dari database; bila Admin lain sudah mengubahnya lebih dulu, perubahan Anda ditolak dan layar menampilkan keadaan terbaru.
+
+Inquiry lama dipetakan saat migrasi: Belum ditindaklanjuti menjadi Baru, Ditindaklanjuti menjadi Dihubungi, Selesai tetap Selesai.
 
 ## Hal yang perlu diwaspadai
 

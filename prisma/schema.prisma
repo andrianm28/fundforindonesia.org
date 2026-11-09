@@ -115,6 +115,9 @@ model User {
   campaignStatusChanges            CampaignStatusChange[]
   tripStatusChanges                VolunteerTripStatusChange[]
   partnershipInquiryStatusChanges  PartnershipInquiryStatusChange[]
+  partnershipInquiriesAsPic        PartnershipInquiry[]              @relation("PartnershipInquiryPic")
+  partnershipChangesPicFrom        PartnershipInquiryStatusChange[]  @relation("PartnershipChangePicFrom")
+  partnershipChangesPicTo          PartnershipInquiryStatusChange[]  @relation("PartnershipChangePicTo")
   cancellationRequestsMade         CancellationRequest[]             @relation("CancellationRequester")
   cancellationRequestsDecided      CancellationRequest[]             @relation("CancellationDecider")
   campaignFlagsRaised              CampaignFlag[]                    @relation("FlagVerifier")
@@ -371,14 +374,30 @@ model Program {
   @@index([sector])
 }
 
-/// How far the partnership team has taken a Partnership Inquiry along
-/// (CONTEXT.md, Partnership Inquiry; ticket csr-05). A new Inquiry always
-/// starts at NOT_YET_FOLLOWED_UP; ticket csr-06 moves it forward and records
-/// who did so and when.
+/// Where a Partnership Inquiry stands in the CSR pipeline (CONTEXT.md,
+/// Partnership Inquiry; pks-pemenuhan/17, PKS Pasal 3.6). Eight stages: Baru,
+/// Dihubungi, Proposal, Negosiasi, Disetujui, Berjalan, Selesai, Tidak
+/// dilanjutkan. A new Inquiry starts at NEW. The three codes this enum had
+/// before map NOT_YET_FOLLOWED_UP -> NEW, IN_PROGRESS -> CONTACTED,
+/// DONE -> DONE (migration 20261111170000).
 enum PartnershipInquiryStatus {
-  NOT_YET_FOLLOWED_UP
-  IN_PROGRESS
+  NEW
+  CONTACTED
+  PROPOSAL
+  NEGOTIATION
+  APPROVED
+  ONGOING
   DONE
+  DROPPED
+}
+
+/// The budget range a company names on its Inquiry, in rupiah. A choice of
+/// range, never a figure: the Program itself takes no money online (ADR 0002).
+enum PartnershipBudgetRange {
+  UNDER_50M
+  FROM_50M_TO_250M
+  FROM_250M_TO_1B
+  OVER_1B
 }
 
 /// One company's proposal to discuss a collaboration on a single Program
@@ -389,50 +408,67 @@ enum PartnershipInquiryStatus {
 /// no money: the Program itself never takes money online, and an Inquiry is not
 /// an entity that can hold any.
 model PartnershipInquiry {
-  id                     String                           @id @default(cuid())
-  programId              String
-  program                Program                          @relation(fields: [programId], references: [id], onDelete: Restrict)
-  companyName            String
+  id                       String                           @id @default(cuid())
+  programId                String
+  program                  Program                          @relation(fields: [programId], references: [id], onDelete: Restrict)
+  companyName              String
   /// Plaintext by decision (ADR 0012), same as User.name: it is what the
   /// partnership team reads to reply.
-  contactName            String
+  contactName              String
   /// The company's description of what it wants to discuss, in its words.
-  needs                  String                           @db.Text
+  needs                    String                           @db.Text
   /// Hex HMAC-SHA256 of the trimmed, lowercased contact email under
   /// FIELD_HMAC_KEY. Searchable; lets the partnership team find every Inquiry
   /// from one company contact without reading a ciphertext.
-  contactEmailHmac       String
-  contactEmailHmacKeyId  String
+  contactEmailHmac         String
+  contactEmailHmacKeyId    String
   /// base64(iv | AES-256-GCM ciphertext | tag) of the contact email under FIELD_ENCRYPTION_KEY.
-  contactEmailCiphertext String
-  contactEmailKeyId      String
+  contactEmailCiphertext   String
+  contactEmailKeyId        String
   /// The contact phone is optional -- plenty of counterparties have one number
   /// and no other -- and is never searched, so ciphertext only: no HMAC, same
   /// as User.phone and Donation.guestPhone.
-  contactPhoneCiphertext String?
-  contactPhoneKeyId      String?
-  status                 PartnershipInquiryStatus         @default(NOT_YET_FOLLOWED_UP)
+  contactPhoneCiphertext   String?
+  contactPhoneKeyId        String?
+  status                   PartnershipInquiryStatus         @default(NEW)
+  /// Budget range the company chose; null on Inquiries that predate the field.
+  budgetRange              PartnershipBudgetRange?
+  /// Planned period as "YYYY-MM" (first and last month), both or neither.
+  periodStart              String?                          @db.VarChar(7)
+  periodEnd                String?                          @db.VarChar(7)
+  /// The company's address and NPWP (both optional), ciphertext only like the
+  /// contact phone (ADR 0012): never searched, so no HMAC.
+  companyAddressCiphertext String?
+  companyAddressKeyId      String?
+  companyNpwpCiphertext    String?
+  companyNpwpKeyId         String?
+  /// The Admin who owns the follow-up (the PIC); always a holder of ADMIN.
+  picId                    String?
+  pic                      User?                            @relation("PartnershipInquiryPic", fields: [picId], references: [id], onDelete: SetNull)
+  /// The proposal PDF a company attached (a private Document, never public).
+  documents                Document[]
   /// The follow-up steps taken on it, oldest first; written only by
   /// src/lib/partnership-inquiry-followup.ts. The second relation this model
   /// has, and the only one besides its Program: never money.
-  statusChanges          PartnershipInquiryStatusChange[]
+  statusChanges            PartnershipInquiryStatusChange[]
   /// The company this Inquiry was filed for by a verified Tim CSR member
   /// (ticket E9/01, tahap 2). Null for the public form, which has no account,
   /// and for every Inquiry that predates company accounts: those keep working
   /// as before and belong to no company.
-  companyId              String?
-  company                Company?                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  companyId                String?
+  company                  Company?                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
   /// Stamped when the contact fields were replaced by the retention job
   /// (src/lib/tim-csr.ts). The columns stay NOT NULL, so anonymised rows hold
   /// placeholders; this says which rows those are.
-  contactAnonymisedAt    DateTime?
-  createdAt              DateTime                         @default(now())
-  updatedAt              DateTime                         @updatedAt
+  contactAnonymisedAt      DateTime?
+  createdAt                DateTime                         @default(now())
+  updatedAt                DateTime                         @updatedAt
 
   @@index([programId])
   @@index([status])
   @@index([contactEmailHmac])
   @@index([companyId])
+  @@index([picId])
 }
 
 /// A company whose people use the platform as a Tim CSR (ticket E9/01, tahap 2;
@@ -498,10 +534,20 @@ model PartnershipInquiryStatusChange {
   /// a member of the partnership team.
   actedById  String
   actedAt    DateTime                 @default(now())
+  /// The follow-up note for this change; required when the Inquiry leaves
+  /// DONE or DROPPED (then it is the reason).
+  note       String?                  @db.VarChar(1000)
+  /// True when this entry also changed the PIC; picFromId and picToId then
+  /// say from whom to whom (null = nobody).
+  picChanged Boolean                  @default(false)
+  picFromId  String?
+  picToId    String?
 
   // Relations
   inquiry PartnershipInquiry @relation(fields: [inquiryId], references: [id], onDelete: Restrict)
   actedBy User               @relation(fields: [actedById], references: [id], onDelete: Restrict)
+  picFrom User?              @relation("PartnershipChangePicFrom", fields: [picFromId], references: [id], onDelete: SetNull)
+  picTo   User?              @relation("PartnershipChangePicTo", fields: [picToId], references: [id], onDelete: SetNull)
 
   @@index([inquiryId, actedAt])
 }
@@ -825,24 +871,24 @@ enum VerificationRequestKind {
 }
 
 model VerificationRequest {
-  id                 String                  @id @default(cuid())
-  campaignId         String
+  id                       String                  @id @default(cuid())
+  campaignId               String
   /// Null only on an AMOUNT_REVIEW, which the System raises and no person
   /// submits (prd-compliance 38); `kind` is what says so.
-  submittedById      String?
-  submittedAt        DateTime                @default(now())
+  submittedById            String?
+  submittedAt              DateTime                @default(now())
   /// The active checklist items as they stood at submission, with the
   /// Verifier's ticks: [{ id, label, required, position, ticked }].
-  checklist          Json
-  outcome            VerificationOutcome     @default(PENDING)
-  reason             String?
+  checklist                Json
+  outcome                  VerificationOutcome     @default(PENDING)
+  reason                   String?
   /// Who closed the request and when: the Verifier on APPROVED or REJECTED,
   /// the Fundraiser on WITHDRAWN. Null while PENDING.
-  decidedById        String?
-  decidedAt          DateTime?
+  decidedById              String?
+  decidedAt                DateTime?
   /// Submitted from Draft (the Campaign's first request) rather than from
   /// Rejected. A withdrawal returns the Campaign to Draft or Rejected by it.
-  isFirst            Boolean
+  isFirst                  Boolean
   /// When the Fundraiser ticked "pernyataan kebenaran data" to submit (PKS
   /// pasal 3.3). Set on every SUBMISSION; null on a change request, an amount
   /// review, and requests that predate the statement.
@@ -851,23 +897,23 @@ model VerificationRequest {
   /// target and/or deadline the Campaign keeps running without until a
   /// Verifier approves this request. Null on every SUBMISSION and on every
   /// AMOUNT_REVIEW. Approving applies it; rejecting or withdrawing discards it.
-  proposedChanges    Json?
+  proposedChanges          Json?
   /// Which of the three kinds of request this is (prd-compliance 38).
   /// Backfilled from `proposedChanges` by the migration that added it, so
   /// every request already in the table says which kind it is instead of
   /// being inferred from a nullable JSON column.
-  kind               VerificationRequestKind @default(SUBMISSION)
+  kind                     VerificationRequestKind @default(SUBMISSION)
   /// Why the System raised an AMOUNT_REVIEW: the Campaign's Cumulative Gross
   /// and the threshold it had passed, as `{ cumulativeGross, threshold }`.
   /// Null on the other two kinds. Kept on the request rather than re-derived
   /// at read time, because the Verifier judges the Campaign as it stood when
   /// the review was raised, and a later Donation would move the number under
   /// them.
-  raisedByAmount     Json?
+  raisedByAmount           Json?
   /// The Campaign's Collecting Entity when it was submitted: the one the
   /// Verifier confirms by approving (prd-compliance 10). Null on requests
   /// submitted before this column existed.
-  collectingEntityId String?
+  collectingEntityId       String?
 
   // Relations
   campaign         Campaign             @relation(fields: [campaignId], references: [id], onDelete: Restrict)
@@ -1164,12 +1210,17 @@ model ShortLink {
 /// (decision 03), just never public.
 model Document {
   id                    String   @id @default(cuid())
-  uploadedById          String
+  /// Null only for a proposal attached by a company on the public Partnership
+  /// Inquiry form, which has no account (pks-pemenuhan/17).
+  uploadedById          String?
   campaignId            String?
   partnerOrganisationId String?
   /// PKS Pasal 4.5: a supporting paper for a Payout request. Readable only by
   /// its uploader (the Payout's Fundraiser) and an Admin, never a Verifier.
   payoutId              String?
+  /// PKS Pasal 3.6: the proposal PDF of a Partnership Inquiry. Readable by an
+  /// Admin and its uploader (a Tim CSR member), never a Verifier.
+  partnershipInquiryId  String?
   /// The §7.1 checklist item this document evidences. Required on a Campaign
   /// document, null on a Partner Organisation one.
   checklistItemId       String?
@@ -1184,15 +1235,17 @@ model Document {
   uploadedAt            DateTime @default(now())
 
   // Relations
-  uploadedBy          User                       @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploadedBy          User?                      @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
   campaign            Campaign?                  @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   partnerOrganisation PartnerOrganisation?       @relation(fields: [partnerOrganisationId], references: [id], onDelete: Restrict)
   payout              Payout?                    @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  partnershipInquiry  PartnershipInquiry?        @relation(fields: [partnershipInquiryId], references: [id], onDelete: Restrict)
   checklistItem       VerificationChecklistItem? @relation(fields: [checklistItemId], references: [id], onDelete: Restrict)
 
   @@index([campaignId, checklistItemId])
   @@index([partnerOrganisationId, uploadedAt])
   @@index([payoutId, uploadedAt])
+  @@index([partnershipInquiryId, uploadedAt])
 }
 
 enum VerificationChecklistAuditAction {
@@ -2597,25 +2650,25 @@ model Payout {
   proofImage      String?
   status          PayoutStatus @default(DRAFT)
 
-  requestedById   String
-  requestedBy     User      @relation("PayoutRequester", fields: [requestedById], references: [id])
+  requestedById         String
+  requestedBy           User      @relation("PayoutRequester", fields: [requestedById], references: [id])
   /// Two-person rule: the approver must not be the requester. Enforced in the
   /// service layer, and the columns exist so it is auditable after the fact.
-  approvedById    String?
-  approvedBy      User?     @relation("PayoutApprover", fields: [approvedById], references: [id])
-  approvedAt      DateTime?
+  approvedById          String?
+  approvedBy            User?     @relation("PayoutApprover", fields: [approvedById], references: [id])
+  approvedAt            DateTime?
   /// The second person: the Admin who recorded the transfer with proof. The
   /// two-person rule's other half (CONTEXT.md, Payout; ADR 0006) is enforced
   /// in the service layer, and the column exists so it is auditable after the
   /// fact -- approvedById alone cannot show that two people were involved,
   /// only that one of them was.
-  completedById   String?
-  completedBy     User?     @relation("PayoutCompleter", fields: [completedById], references: [id])
-  rejectionReason String?
+  completedById         String?
+  completedBy           User?     @relation("PayoutCompleter", fields: [completedById], references: [id])
+  rejectionReason       String?
   /// PKS Pasal 4.5: an additional note the Fundraiser wrote for the Admin
   /// reading the request (what the money is for, what the papers show).
   /// Optional; supporting papers are Documents carrying this Payout's id.
-  supportingNote  String?   @db.VarChar(1000)
+  supportingNote        String?   @db.VarChar(1000)
   /// Why an Admin sent the Payout back, who, and when. Kept after the
   /// Fundraiser resubmits (the trail), shown only while the status is
   /// REVISION_REQUESTED.

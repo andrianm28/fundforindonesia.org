@@ -2,7 +2,12 @@ import { Prisma, type PrismaClient } from '@/generated/prisma/client';
 import { readUserEmail, SELECT_USER_EMAIL } from './contact-fields';
 import type { Mailer } from './mail';
 import { createPartnershipInquiry } from './partnership-inquiries';
-import { INQUIRY_STATUS_LABEL, type PartnershipInquiryStatusValue } from './partnership-inquiry-status';
+import {
+  INITIAL_INQUIRY_STATUS,
+  INQUIRY_STATUS_LABEL,
+  type PartnershipBudgetRangeValue,
+  type PartnershipInquiryStatusValue,
+} from './partnership-inquiry-status';
 import { SECTOR_LABEL, slugifyTitle, type SectorValue } from './programs';
 
 /**
@@ -171,6 +176,7 @@ export type MembershipView = {
 };
 
 type MemberContext = {
+  userId: string;
   companyId: string;
   companyName: string;
   userName: string;
@@ -193,6 +199,7 @@ async function verifiedMemberOf(prisma: PrismaClient, userId: string): Promise<M
   const email = readUserEmail(membership.user);
   if (email === null || emailDomainOf(email) !== membership.company.emailDomain) return null;
   return {
+    userId,
     companyId: membership.company.id,
     companyName: membership.company.name,
     userName: membership.user.name,
@@ -306,8 +313,19 @@ export async function joinCompany(
 export async function submitCompanyInquiry(
   prisma: PrismaClient,
   userId: string | null | undefined,
-  input: { programId: unknown; needs: unknown; contactPhone?: unknown },
+  input: {
+    programId: unknown;
+    needs: unknown;
+    contactPhone?: unknown;
+    /** pks-pemenuhan/17: the same optional fields the public form takes. */
+    budgetRange?: unknown;
+    periodStart?: unknown;
+    periodEnd?: unknown;
+    companyAddress?: unknown;
+    companyNpwp?: unknown;
+  },
   mailer?: Mailer,
+  proposal?: { bytes: Uint8Array; declaredType: string; size: number },
 ) {
   const member = await requireMember(prisma, userId);
   return createPartnershipInquiry(
@@ -319,10 +337,15 @@ export async function submitCompanyInquiry(
       contactEmail: member.userEmail,
       contactPhone: input.contactPhone,
       needs: input.needs,
+      budgetRange: input.budgetRange,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      companyAddress: input.companyAddress,
+      companyNpwp: input.companyNpwp,
     },
     mailer,
     undefined,
-    { companyId: member.companyId },
+    { companyId: member.companyId, proposal, uploadedById: member.userId },
   );
 }
 
@@ -331,6 +354,9 @@ export type CompanyInquiryView = {
   program: { id: string; slug: string; title: string; sector: SectorValue };
   needs: string;
   contactName: string;
+  budgetRange: PartnershipBudgetRangeValue | null;
+  periodStart: string | null;
+  periodEnd: string | null;
   status: PartnershipInquiryStatusValue;
   statusLabel: string;
   createdAt: Date;
@@ -355,10 +381,16 @@ export async function listCompanyInquiries(
       id: true,
       needs: true,
       contactName: true,
+      budgetRange: true,
+      periodStart: true,
+      periodEnd: true,
       status: true,
       createdAt: true,
       program: { select: { id: true, slug: true, title: true, sector: true } },
-      statusChanges: { orderBy: [{ actedAt: 'asc' }, { id: 'asc' }], select: { toStatus: true, actedAt: true } },
+      statusChanges: {
+        orderBy: [{ actedAt: 'asc' }, { id: 'asc' }],
+        select: { fromStatus: true, toStatus: true, actedAt: true },
+      },
     },
   });
   return {
@@ -368,12 +400,19 @@ export async function listCompanyInquiries(
       program: row.program,
       needs: row.needs,
       contactName: row.contactName,
+      budgetRange: row.budgetRange,
+      periodStart: row.periodStart,
+      periodEnd: row.periodEnd,
       status: row.status,
       statusLabel: INQUIRY_STATUS_LABEL[row.status],
       createdAt: row.createdAt,
       history: [
-        { status: 'NOT_YET_FOLLOWED_UP' as const, label: INQUIRY_STATUS_LABEL.NOT_YET_FOLLOWED_UP, at: row.createdAt },
-        ...row.statusChanges.map((c) => ({ status: c.toStatus, label: INQUIRY_STATUS_LABEL[c.toStatus], at: c.actedAt })),
+        { status: INITIAL_INQUIRY_STATUS, label: INQUIRY_STATUS_LABEL[INITIAL_INQUIRY_STATUS], at: row.createdAt },
+        // Only changes of stage: a PIC assignment or an internal note is the
+        // partnership team's own, and the company sees neither.
+        ...row.statusChanges
+          .filter((c) => c.fromStatus !== c.toStatus)
+          .map((c) => ({ status: c.toStatus, label: INQUIRY_STATUS_LABEL[c.toStatus], at: c.actedAt })),
       ],
     })),
   };
@@ -497,7 +536,7 @@ export type CompanyRetentionResult = { consideredCount: number; anonymisedCount:
  *
  * Per company, in one transaction: its memberships are removed (the people
  * keep their own accounts), and every Inquiry's contact name, email and phone
- * are replaced. The contact columns are NOT NULL, so the email columns take
+ * are replaced, and so are the company's address and NPWP. The contact columns are NOT NULL, so the email columns take
  * placeholders and `contactAnonymisedAt` marks the rows; the HMAC placeholder
  * is unique per row so nothing links two anonymised rows. The Inquiry, its
  * Program and its status history stay: they hold no person. Idempotent, and
@@ -547,6 +586,10 @@ export async function anonymiseExpiredCompanies(
               "contactEmailKeyId" = ${ANONYMISED_KEY_ID},
               "contactPhoneCiphertext" = NULL,
               "contactPhoneKeyId" = NULL,
+              "companyAddressCiphertext" = NULL,
+              "companyAddressKeyId" = NULL,
+              "companyNpwpCiphertext" = NULL,
+              "companyNpwpKeyId" = NULL,
               "contactAnonymisedAt" = ${now}
           WHERE "companyId" = ${candidate.id} AND "contactAnonymisedAt" IS NULL`;
         await tx.company.update({ where: { id: candidate.id }, data: { anonymisedAt: now } });

@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import {
+  BUDGET_RANGE_LABEL,
+  PARTNERSHIP_BUDGET_RANGES,
+} from '@/lib/partnership-inquiry-status';
 
 /**
  * The Partnership Inquiry form on a Program page (ticket csr-04; PRD
@@ -13,6 +17,13 @@ import { useState, type FormEvent } from 'react';
  * a conversation is what is being started here. The Program is named by the
  * page rather than chosen by the visitor, so a company cannot file an Inquiry
  * about a Program it is not looking at.
+ *
+ * PKS Pasal 3.6 (pks-pemenuhan/17): besides the contact and the need, a company
+ * can say its budget range (a choice of range, never a figure), the period it has
+ * in mind (a start and an end month), its address and NPWP (both optional), and
+ * attach a proposal as a PDF. The form posts multipart so the PDF can travel with
+ * the text; the PDF is stored as a private document only the partnership team can
+ * open.
  */
 export function PartnershipInquiryForm({ programId, programSlug }: { programId: string; programSlug: string }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'refused'>('idle');
@@ -21,15 +32,15 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const body = Object.fromEntries(new FormData(form).entries());
+    const body = new FormData(form);
 
     setState('sending');
     setError(null);
     try {
       const response = await fetch('/api/partnership-inquiries', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        // No Content-Type: the browser sets multipart with its boundary.
+        body,
       });
       if (!response.ok) {
         const refusal = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -114,6 +125,76 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
       </div>
 
       <div>
+        <label htmlFor="budgetRange" className="block text-sm font-medium text-text mb-1">
+          Kisaran anggaran (opsional)
+        </label>
+        <select
+          id="budgetRange"
+          name="budgetRange"
+          defaultValue=""
+          className="w-full px-3 py-2 text-sm border border-border rounded-md text-text"
+        >
+          <option value="">Pilih kisaran anggaran</option>
+          {PARTNERSHIP_BUDGET_RANGES.map((range) => (
+            <option key={range} value={range}>
+              {BUDGET_RANGE_LABEL[range]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="periodStart" className="block text-sm font-medium text-text mb-1">
+            Periode mulai (bulan)
+          </label>
+          <input
+            id="periodStart"
+            name="periodStart"
+            type="month"
+            className="w-full px-3 py-2 text-sm border border-border rounded-md text-text"
+          />
+        </div>
+        <div>
+          <label htmlFor="periodEnd" className="block text-sm font-medium text-text mb-1">
+            Periode selesai (bulan)
+          </label>
+          <input
+            id="periodEnd"
+            name="periodEnd"
+            type="month"
+            className="w-full px-3 py-2 text-sm border border-border rounded-md text-text"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="companyAddress" className="block text-sm font-medium text-text mb-1">
+          Alamat perusahaan (opsional)
+        </label>
+        <textarea
+          id="companyAddress"
+          name="companyAddress"
+          rows={2}
+          maxLength={500}
+          className="w-full px-3 py-2 text-sm border border-border rounded-md text-text"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="companyNpwp" className="block text-sm font-medium text-text mb-1">
+          NPWP perusahaan (opsional)
+        </label>
+        <input
+          id="companyNpwp"
+          name="companyNpwp"
+          inputMode="numeric"
+          autoComplete="off"
+          className="w-full px-3 py-2 text-sm border border-border rounded-md text-text"
+        />
+      </div>
+
+      <div>
         <label htmlFor="needs" className="block text-sm font-medium text-text mb-1">
           Apa yang ingin Anda bicarakan
         </label>
@@ -124,6 +205,22 @@ export function PartnershipInquiryForm({ programId, programSlug }: { programId: 
           rows={4}
           className="w-full px-3 py-2 text-sm border border-border rounded-md text-text"
         />
+      </div>
+
+      <div>
+        <label htmlFor="proposal" className="block text-sm font-medium text-text mb-1">
+          Proposal (PDF, opsional, maksimal 10MB)
+        </label>
+        <input
+          id="proposal"
+          name="proposal"
+          type="file"
+          accept="application/pdf"
+          className="w-full text-sm text-text"
+        />
+        <p className="mt-1 text-xs text-text-secondary">
+          Proposal Anda disimpan privat dan hanya dapat dibuka oleh tim kemitraan kami.
+        </p>
       </div>
 
       {error ? (
