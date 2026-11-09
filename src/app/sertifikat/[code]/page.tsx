@@ -47,7 +47,7 @@ export default async function CertificatePage({ params }: PageProps) {
         <p className="text-sm text-text-secondary">Penyelenggara: {certificate.organizerName}</p>
         <hr className="border-border" />
         <p className="text-sm text-text-secondary">
-          Diterbitkan oleh Fund for Indonesia (PT Jaya Korpora Prima) atas nama penyelenggara, pada{' '}
+          Diterbitkan oleh Fund for Indonesia atas nama penyelenggara, pada{' '}
           {formatWibDate(certificate.issuedAt)}.
         </p>
         <p className="text-xs text-text-secondary">
