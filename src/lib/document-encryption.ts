@@ -124,7 +124,12 @@ export async function encryptStoredDocuments(
       }
       const storagePath = `${shard.name}/${entry.name}`;
       const full = join(dir, entry.name);
-      const before = await stat(full);
+      const before = await stat(full).catch(() => null);
+      if (!before) {
+        log(`skipped ${storagePath}: removed before it could be read`);
+        result.skipped += 1;
+        continue;
+      }
       if (Date.now() - before.mtimeMs < minAgeMs) {
         log(`skipped ${storagePath}: modified under ${Math.round(minAgeMs / 1000)}s ago (live upload?)`);
         result.skipped += 1;
@@ -156,8 +161,8 @@ export async function encryptStoredDocuments(
         const roundTrip = openDocumentBytes(keys, storagePath, await readFile(temp));
         if (!roundTrip.equals(current)) throw new Error(`Sealed copy of ${storagePath} does not match the original`);
         // A write that landed since we read it would be lost by the rename.
-        const after = await stat(full);
-        if (after.mtimeMs !== before.mtimeMs || after.size !== before.size) {
+        const after = await stat(full).catch(() => null);
+        if (!after || after.mtimeMs !== before.mtimeMs || after.size !== before.size) {
           await unlink(temp).catch(() => undefined);
           log(`skipped ${storagePath}: changed while being sealed`);
           result.skipped += 1;
