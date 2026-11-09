@@ -10,6 +10,9 @@ interface FormErrors {
   name?: string;
   email?: string;
   password?: string;
+  whatsapp?: string;
+  acceptTerms?: string;
+  acceptPrivacy?: string;
 }
 
 export default function RegisterPage() {
@@ -17,6 +20,10 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [profileType, setProfileType] = useState<'INDIVIDUAL' | 'ORGANISATION'>('INDIVIDUAL');
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [serverError, setServerError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -49,9 +56,11 @@ export default function RegisterPage() {
       name: validateField('name', name),
       email: validateField('email', email),
       password: validateField('password', password),
+      acceptTerms: acceptTerms ? undefined : 'Anda harus menyetujui Syarat Layanan',
+      acceptPrivacy: acceptPrivacy ? undefined : 'Anda harus menyetujui Kebijakan Privasi',
     };
     setErrors(newErrors);
-    return !newErrors.name && !newErrors.email && !newErrors.password;
+    return !Object.values(newErrors).some(Boolean);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -66,7 +75,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, whatsapp, profileType, acceptTerms, acceptPrivacy }),
       });
 
       const data = await res.json();
@@ -154,6 +163,53 @@ export default function RegisterPage() {
               />
             </div>
 
+            {/* WhatsApp Field (optional) */}
+            <div className="mb-4">
+              <Input
+                label="Nomor WhatsApp (opsional)"
+                name="whatsapp"
+                type="tel"
+                placeholder="0812 3456 7890"
+                value={whatsapp}
+                onChange={(v) => {
+                  setWhatsapp(v);
+                  if (errors.whatsapp) setErrors((prev) => ({ ...prev, whatsapp: undefined }));
+                }}
+                error={errors.whatsapp}
+              />
+            </div>
+
+            {/* Profile type */}
+            <fieldset className="mb-4">
+              <legend className="text-sm font-medium text-text mb-2">Jenis profil</legend>
+              <div className="flex gap-4 text-sm text-text">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="profileType"
+                    checked={profileType === 'INDIVIDUAL'}
+                    onChange={() => setProfileType('INDIVIDUAL')}
+                  />
+                  Individu
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="profileType"
+                    checked={profileType === 'ORGANISATION'}
+                    onChange={() => setProfileType('ORGANISATION')}
+                  />
+                  Lembaga
+                </label>
+              </div>
+              {profileType === 'ORGANISATION' && (
+                <p className="text-xs text-text-secondary mt-1">
+                  Lembaga perlu didaftarkan oleh Verifier sebagai Partner Organisation sebelum bisa
+                  menggalang dana.
+                </p>
+              )}
+            </fieldset>
+
             {/* Password Field */}
             <div className="mb-6">
               <Input
@@ -173,6 +229,44 @@ export default function RegisterPage() {
               />
             </div>
 
+            {/* Required consent */}
+            <div className="mb-6 space-y-2">
+              <label className="flex items-start gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  name="acceptTerms"
+                  className="mt-1"
+                  checked={acceptTerms}
+                  onChange={(e) => {
+                    setAcceptTerms(e.target.checked);
+                    if (errors.acceptTerms) setErrors((prev) => ({ ...prev, acceptTerms: undefined }));
+                  }}
+                />
+                <span>
+                  Saya menyetujui{' '}
+                  <Link href="/terms" className="text-primary hover:underline">Syarat Layanan</Link>
+                </span>
+              </label>
+              {errors.acceptTerms && <p className="text-xs text-danger">{errors.acceptTerms}</p>}
+              <label className="flex items-start gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  name="acceptPrivacy"
+                  className="mt-1"
+                  checked={acceptPrivacy}
+                  onChange={(e) => {
+                    setAcceptPrivacy(e.target.checked);
+                    if (errors.acceptPrivacy) setErrors((prev) => ({ ...prev, acceptPrivacy: undefined }));
+                  }}
+                />
+                <span>
+                  Saya menyetujui{' '}
+                  <Link href="/privacy" className="text-primary hover:underline">Kebijakan Privasi</Link>
+                </span>
+              </label>
+              {errors.acceptPrivacy && <p className="text-xs text-danger">{errors.acceptPrivacy}</p>}
+            </div>
+
             {/* Submit Button */}
             <Button
               type="submit"
@@ -185,11 +279,6 @@ export default function RegisterPage() {
             </Button>
           </form>
 
-          <p className="text-center text-xs text-text-secondary mt-4">
-            Dengan mendaftar, Anda menyetujui{' '}
-            <Link href="/terms" className="text-primary hover:underline">Syarat &amp; Ketentuan</Link> dan{' '}
-            <Link href="/privacy" className="text-primary hover:underline">Kebijakan Privasi</Link>.
-          </p>
 
           {/* Login Link */}
           <p className="text-center text-sm text-text-secondary mt-5">

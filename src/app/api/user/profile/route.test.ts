@@ -113,7 +113,75 @@ describe("PATCH /api/user/profile", () => {
     expect(mockedUserUpdate).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { name: "New Name" },
-      select: { id: true, name: true, avatar: true, ...SELECT_USER_EMAIL },
+      select: expect.objectContaining({ id: true, name: true, avatar: true, ...SELECT_USER_EMAIL }),
+    });
+  });
+
+  // Tiket 07 (PKS 3.1): WhatsApp tersimpan terenkripsi dan bisa diubah.
+  describe("WhatsApp dan jenis profil", () => {
+    const session = {
+      user: { id: "user-1", name: "Test", email: "test@test.com", assignments: [] },
+      expires: "2099-01-01",
+    };
+
+    it("menyimpan WhatsApp hanya sebagai ciphertext dan menjawab dengan nomor yang didekripsi", async () => {
+      mockedGetServerSession.mockResolvedValue(session);
+      mockedUserUpdate.mockImplementation((async (args: { data: Record<string, unknown> }) => ({
+        id: "user-1",
+        name: "Test",
+        avatar: null,
+        profileType: "INDIVIDUAL",
+        ...sealUserEmail("test@test.com"),
+        phoneCiphertext: args.data.phoneCiphertext,
+        phoneKeyId: args.data.phoneKeyId,
+      })) as never);
+
+      const response = await PATCH(createRequest({ whatsapp: "+62 812-3456-7890" }));
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.user.whatsapp).toBe("6281234567890");
+      const written = mockedUserUpdate.mock.calls[0][0].data as Record<string, unknown>;
+      expect(JSON.stringify(written)).not.toContain("6281234567890");
+      expect(written).not.toHaveProperty("phone");
+      expect(written.phoneCiphertext).toEqual(expect.any(String));
+    });
+
+    it("mengosongkan nomor bila string kosong", async () => {
+      mockedGetServerSession.mockResolvedValue(session);
+      mockedUserUpdate.mockResolvedValue({
+        id: "user-1", name: "Test", avatar: null, profileType: "INDIVIDUAL",
+        ...sealUserEmail("test@test.com"), phoneCiphertext: null, phoneKeyId: null,
+      } as never);
+
+      const response = await PATCH(createRequest({ whatsapp: "" }));
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).user.whatsapp).toBeNull();
+      expect(mockedUserUpdate.mock.calls[0][0].data).toEqual({ phoneCiphertext: null, phoneKeyId: null });
+    });
+
+    it("menolak nomor non-Indonesia", async () => {
+      mockedGetServerSession.mockResolvedValue(session);
+      const response = await PATCH(createRequest({ whatsapp: "555-1234" }));
+      expect(response.status).toBe(400);
+      expect((await response.json()).fieldErrors.whatsapp).toBeDefined();
+      expect(mockedUserUpdate).not.toHaveBeenCalled();
+    });
+
+    it("mengubah jenis profil, dan menolak nilai lain", async () => {
+      mockedGetServerSession.mockResolvedValue(session);
+      mockedUserUpdate.mockResolvedValue({
+        id: "user-1", name: "Test", avatar: null, profileType: "ORGANISATION",
+        ...sealUserEmail("test@test.com"), phoneCiphertext: null, phoneKeyId: null,
+      } as never);
+
+      const ok = await PATCH(createRequest({ profileType: "ORGANISATION" }));
+      expect((await ok.json()).user.profileType).toBe("ORGANISATION");
+      expect(mockedUserUpdate.mock.calls[0][0].data).toEqual({ profileType: "ORGANISATION" });
+
+      const bad = await PATCH(createRequest({ profileType: "ADMIN" }));
+      expect(bad.status).toBe(400);
     });
   });
 
@@ -128,7 +196,7 @@ describe("PATCH /api/user/profile", () => {
       name: "Ab",
       avatar: null,
       ...sealUserEmail("test@test.com"),
-    } as any);
+    } as never);
 
     const response = await PATCH(createRequest({ name: "Ab" }));
     const data = await response.json();
@@ -149,7 +217,7 @@ describe("PATCH /api/user/profile", () => {
       name: exactName,
       avatar: null,
       ...sealUserEmail("test@test.com"),
-    } as any);
+    } as never);
 
     const response = await PATCH(createRequest({ name: exactName }));
     const data = await response.json();

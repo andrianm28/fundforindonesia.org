@@ -21,3 +21,10 @@ export const SITE_IDENTITY = {
 
 /** Tanggal revisi Syarat & Ketentuan dan Kebijakan Privasi. */
 export const LEGAL_DOCS_UPDATED = '16 Oktober 2026';
+
+/**
+ * Versi yang dicatat pada persetujuan pengguna (UserConsent.version). Selalu
+ * bergerak bersama LEGAL_DOCS_UPDATED: mengubah teks Syarat atau Privasi berarti
+ * menaikkan keduanya, dan persetujuan lama tetap tercatat dengan versinya.
+ */
+export const LEGAL_DOCS_VERSION = '2026-10-16';

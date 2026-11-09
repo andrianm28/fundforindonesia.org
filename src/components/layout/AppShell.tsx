@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import BottomNavBar from './BottomNavBar';
 import DesktopHeader from './DesktopHeader';
 import { PageTransition } from './PageTransition';
+import { ConsentGate } from './ConsentGate';
 import { useUnreadCount } from '@/lib/hooks/useUnreadCount';
 import { User } from '@/types';
 import { staffEntryLinks } from '@/lib/staff-entry-links';
@@ -64,6 +65,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <>
+      <ConsentGate />
       {/* Desktop Header - hidden on mobile/tablet, visible on lg+ */}
       <DesktopHeader
         user={user}

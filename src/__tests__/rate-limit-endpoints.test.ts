@@ -60,7 +60,7 @@ beforeEach(() => {
 });
 
 describe('POST /api/auth/register', () => {
-  const body = { name: 'A', email: 'a@example.com', password: 'Whatever-123456' };
+  const body = { name: 'A', email: 'a@example.com', password: 'Whatever-123456', acceptTerms: true, acceptPrivacy: true };
 
   it('counts the attempt per client address', async () => {
     userFind.mockResolvedValue({ id: 'existing' });

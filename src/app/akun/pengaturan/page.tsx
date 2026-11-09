@@ -55,6 +55,9 @@ export default function SettingsPage() {
           onProfileUpdated={() => update()}
         />
 
+        {/* WhatsApp and profile type (PKS 3.1) */}
+        <ContactSection />
+
         {/* Password Section */}
         <PasswordSection />
 
@@ -311,6 +314,119 @@ function NameForm({
         className="bg-[#0073E6] text-white text-sm px-4 py-2 rounded-lg font-medium hover:bg-[#005BB5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? 'Menyimpan...' : 'Simpan Nama'}
+      </button>
+    </form>
+  );
+}
+
+// ─── Contact Section (WhatsApp, profile type) ───────────────────────────────
+
+function ContactSection() {
+  const [whatsapp, setWhatsapp] = useState('');
+  const [profileType, setProfileType] = useState<'INDIVIDUAL' | 'ORGANISATION'>('INDIVIDUAL');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  // The saved values, read once: the number is stored encrypted and only the
+  // owner's own request ever gets it back in the clear.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/user/profile')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data?.user) return;
+        setWhatsapp(data.user.whatsapp ? `+${data.user.whatsapp}` : '');
+        setProfileType(data.user.profileType === 'ORGANISATION' ? 'ORGANISATION' : 'INDIVIDUAL');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(false);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp, profileType }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.fieldErrors?.whatsapp?.[0] || data.error || 'Gagal menyimpan');
+        return;
+      }
+      setWhatsapp(data.user.whatsapp ? `+${data.user.whatsapp}` : '');
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch {
+      setError('Gagal menyimpan. Coba lagi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-xs p-4 space-y-3">
+      <h2 className="text-text font-semibold text-sm">Kontak dan Jenis Profil</h2>
+      <div>
+        <label htmlFor="whatsapp" className="block text-text-secondary text-xs mb-1">
+          Nomor WhatsApp (opsional)
+        </label>
+        <input
+          id="whatsapp"
+          type="tel"
+          value={whatsapp}
+          onChange={(e) => {
+            setWhatsapp(e.target.value);
+            setError(null);
+          }}
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm text-text focus:outline-hidden focus:border-[#0073E6] focus:ring-1 focus:ring-[#0073E6]"
+          placeholder="0812 3456 7890"
+          maxLength={30}
+        />
+        {error && <p className="text-danger text-xs mt-1">{error}</p>}
+        {success && <p className="text-success text-xs mt-1">Berhasil disimpan</p>}
+      </div>
+      <fieldset>
+        <legend className="text-text-secondary text-xs mb-1">Jenis profil</legend>
+        <div className="flex gap-4 text-sm text-text">
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="profileType"
+              checked={profileType === 'INDIVIDUAL'}
+              onChange={() => setProfileType('INDIVIDUAL')}
+            />
+            Individu
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="profileType"
+              checked={profileType === 'ORGANISATION'}
+              onChange={() => setProfileType('ORGANISATION')}
+            />
+            Lembaga
+          </label>
+        </div>
+        {profileType === 'ORGANISATION' && (
+          <p className="text-[#9E9E9E] text-xs mt-1">
+            Lembaga perlu didaftarkan oleh Verifier sebagai Partner Organisation.
+          </p>
+        )}
+      </fieldset>
+      <button
+        type="submit"
+        disabled={loading}
+        className="bg-[#0073E6] text-white text-sm px-4 py-2 rounded-lg font-medium hover:bg-[#005BB5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {loading ? 'Menyimpan...' : 'Simpan'}
       </button>
     </form>
   );

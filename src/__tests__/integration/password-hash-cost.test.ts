@@ -65,6 +65,8 @@ async function registerHashFor(password: string): Promise<string> {
       name: "Test",
       email: "test@test.com",
       password,
+      acceptTerms: true,
+      acceptPrivacy: true,
     })
   );
 

@@ -19,6 +19,33 @@ enum Assignment {
 
 // ==================== User & Auth ====================
 
+enum ProfileType {
+  INDIVIDUAL
+  ORGANISATION
+}
+
+enum ConsentDocument {
+  TERMS
+  PRIVACY
+}
+
+/// A person's recorded acceptance of one legal document at one version (PKS
+/// Pasal 3.1, 3.8). One row per (user, document, version); written at
+/// registration and at a Google user's first sign-in, never updated. The
+/// version is LEGAL_DOCS_VERSION (src/lib/site-identity.ts) at the time.
+model UserConsent {
+  id         String          @id @default(cuid())
+  userId     String
+  document   ConsentDocument
+  version    String
+  acceptedAt DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, document, version])
+  @@index([userId])
+}
+
 model User {
   id               String    @id @default(cuid())
   name             String
@@ -45,6 +72,10 @@ model User {
   emailKeyId       String
   phoneCiphertext  String?
   phoneKeyId       String?
+  /// Individu or Lembaga (PKS Pasal 3.1). Self-declared at registration and
+  /// editable in settings. It grants nothing: a Lembaga still has to be
+  /// registered by a Verifier as a Partner Organisation.
+  profileType      ProfileType @default(INDIVIDUAL)
   /// Set once, when the owner of this address opened the confirmation link
   /// emailed to it (prd-compliance 23; src/lib/email-verification.ts). Until
   /// then the account has proven nothing about the address: it may have been
@@ -59,6 +90,7 @@ model User {
 
   // Relations
   accounts                         Account[]
+  consents                         UserConsent[]
   campaigns                        Campaign[]
   volunteerTrips                   VolunteerTrip[]
   registrations                    Registration[]

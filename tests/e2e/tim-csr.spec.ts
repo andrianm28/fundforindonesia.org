@@ -29,7 +29,7 @@ async function signedIn(browser: Browser, email: string, password: string): Prom
 test('a person registers on a company domain but cannot join or see anything until the email is verified', async ({ browser, request }, testInfo) => {
   const email = `orang-${testInfo.project.name.toLowerCase()}-${Date.now()}@${CSR_ALPHA_DOMAIN}`;
   const password = operatorPassword();
-  const registered = await request.post('/api/auth/register', { data: { name: 'Orang Baru', email, password } });
+  const registered = await request.post('/api/auth/register', { data: { name: 'Orang Baru', email, password, acceptTerms: true, acceptPrivacy: true } });
   expect(registered.status()).toBe(201);
 
   const { page, close } = await signedIn(browser, email, password);
