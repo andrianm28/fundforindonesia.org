@@ -16,7 +16,12 @@ export type ReceiptPdfInput = {
 
 function toLatin1(text: string): string {
   // One `?` per code point, so an emoji does not become two.
-  return Array.from(text.replace(/[\r\n]+/g, ' '))
+  const typographic = text
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, '...');
+  return Array.from(typographic.replace(/[\r\n]+/g, ' '))
     .map((ch) => (ch.charCodeAt(0) <= 0xff ? ch : '?'))
     .join('');
 }
