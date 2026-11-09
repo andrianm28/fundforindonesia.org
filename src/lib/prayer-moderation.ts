@@ -21,8 +21,12 @@ export function isPublicPrayer(prayer: { hidden: boolean; deletedAt: Date | null
   return !prayer.hidden && !prayer.deletedAt;
 }
 
-/** OK; NOT_FOUND (no such Prayer); GONE (already deleted, so nothing may change it). */
-export type PrayerModerationOutcome = 'OK' | 'NOT_FOUND' | 'GONE';
+/**
+ * OK; NOT_FOUND (no such Prayer); GONE (already deleted, so nothing may change
+ * it); UNCHANGED (already hidden / already visible: nothing to do, and the
+ * record of the first moderation stays).
+ */
+export type PrayerModerationOutcome = 'OK' | 'NOT_FOUND' | 'GONE' | 'UNCHANGED';
 
 /**
  * Each change is one guarded `updateMany`, so two moderators racing cannot
@@ -36,28 +40,30 @@ export async function moderatePrayer(
   input: { prayerId: string; action: PrayerModerationAction; actorId: string; now: Date },
 ): Promise<PrayerModerationOutcome> {
   const { prayerId, action, actorId, now } = input;
+  // Survives 'show', which clears the hide record: who moderated last, and when.
+  const trace = { lastModeratedAt: now, lastModeratedById: actorId };
 
   const changed =
     action === 'hide'
       ? await db.prayer.updateMany({
           where: { id: prayerId, deletedAt: null, hidden: false },
-          data: { hidden: true, hiddenAt: now, hiddenById: actorId },
+          data: { hidden: true, hiddenAt: now, hiddenById: actorId, ...trace },
         })
       : action === 'show'
         ? await db.prayer.updateMany({
             where: { id: prayerId, deletedAt: null, hidden: true },
-            data: { hidden: false, hiddenAt: null, hiddenById: null },
+            data: { hidden: false, hiddenAt: null, hiddenById: null, ...trace },
           })
         : await db.prayer.updateMany({
             where: { id: prayerId, deletedAt: null },
-            data: { deletedAt: now, deletedById: actorId },
+            data: { deletedAt: now, deletedById: actorId, ...trace },
           });
   if (changed.count > 0) return 'OK';
 
   const existing = await db.prayer.findUnique({ where: { id: prayerId }, select: { id: true, deletedAt: true } });
   if (!existing) return 'NOT_FOUND';
   // Deleted: final. Otherwise the Prayer is already in the state asked for.
-  return existing.deletedAt ? 'GONE' : 'OK';
+  return existing.deletedAt ? 'GONE' : 'UNCHANGED';
 }
 
 export type PrayerModerationFilter = 'visible' | 'hidden';

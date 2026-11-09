@@ -1386,6 +1386,13 @@ model Prayer {
   deletedAt   DateTime?
   deletedById String?
 
+  /// Durable trace of the LAST moderation of any kind (hide, show, delete):
+  /// showing a Prayer clears hiddenAt/hiddenById, so without this the record of
+  /// who hid it would be gone. Set together on every change that took effect,
+  /// never cleared. Plain string for the same reason as the ids above.
+  lastModeratedAt   DateTime?
+  lastModeratedById String?
+
   // Relations
   donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)

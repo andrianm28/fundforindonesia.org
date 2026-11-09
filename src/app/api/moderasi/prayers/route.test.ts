@@ -8,9 +8,11 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('@/lib/auth', () => ({ getServerSession: vi.fn() }));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 
 import { GET } from './route';
 import { PATCH } from './[id]/route';
+import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from '@/lib/auth';
 
@@ -21,6 +23,7 @@ const updateMany = prisma.prayer.updateMany as unknown as Mock;
 const findUnique = prisma.prayer.findUnique as unknown as Mock;
 const userFindMany = prisma.user.findMany as unknown as Mock;
 
+const revalidate = revalidatePath as unknown as Mock;
 const as = (assignments: string[] | null) =>
   session.mockResolvedValue(assignments ? { user: { id: 'mod-1', assignments } } : null);
 
@@ -128,5 +131,63 @@ describe('PATCH /api/moderasi/prayers/[id]', () => {
     expect((await patch({ action: 'hide' })).status).toBe(404);
     findUnique.mockResolvedValueOnce({ id: 'p1', deletedAt: new Date() });
     expect((await patch({ action: 'hide' })).status).toBe(409);
+  });
+
+  it('records who and when as the last moderation on every action, and keeps it through show', async () => {
+    for (const action of ['hide', 'show', 'delete']) {
+      updateMany.mockClear();
+      await patch({ action });
+      const { data } = updateMany.mock.calls[0][0];
+      expect(data).toMatchObject({ lastModeratedById: 'mod-1' });
+      expect(data.lastModeratedAt).toBeInstanceOf(Date);
+    }
+  });
+
+  it('shows a hidden Prayer again: 200', async () => {
+    const res = await patch({ action: 'show' });
+    expect(res.status).toBe(200);
+    expect(updateMany.mock.calls[0][0].where).toMatchObject({ id: 'p1', deletedAt: null, hidden: true });
+  });
+
+  it('showing a Prayer that is already visible changes nothing and answers 409', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    findUnique.mockResolvedValueOnce({ id: 'p1', hidden: false, deletedAt: null });
+    expect((await patch({ action: 'show' })).status).toBe(409);
+    expect(revalidate).not.toHaveBeenCalled();
+  });
+
+  it('hiding a Prayer that is already hidden answers 409', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    findUnique.mockResolvedValueOnce({ id: 'p1', hidden: true, deletedAt: null });
+    expect((await patch({ action: 'hide' })).status).toBe(409);
+  });
+
+  it('showing a deleted Prayer answers 409', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    findUnique.mockResolvedValueOnce({ id: 'p1', hidden: false, deletedAt: new Date() });
+    expect((await patch({ action: 'show' })).status).toBe(409);
+  });
+
+  it('deleting twice: the second answers 409', async () => {
+    expect((await patch({ action: 'delete' })).status).toBe(200);
+    updateMany.mockResolvedValue({ count: 0 });
+    findUnique.mockResolvedValueOnce({ id: 'p1', hidden: false, deletedAt: new Date() });
+    expect((await patch({ action: 'delete' })).status).toBe(409);
+  });
+
+  it('after a change that took effect, refreshes the Prayer feed, the home page and the Campaign pages', async () => {
+    for (const action of ['hide', 'show', 'delete']) {
+      revalidate.mockClear();
+      await patch({ action });
+      const paths = revalidate.mock.calls.map((c) => c[0]);
+      expect(paths).toEqual(expect.arrayContaining(['/api/prayers', '/', '/campaign/[slug]']));
+    }
+  });
+
+  it('does not refresh anything when the change was refused', async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    findUnique.mockResolvedValueOnce(null);
+    await patch({ action: 'hide' });
+    expect(revalidate).not.toHaveBeenCalled();
   });
 });

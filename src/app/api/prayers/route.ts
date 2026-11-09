@@ -84,10 +84,9 @@ export async function GET(request: NextRequest) {
       totalPages,
     });
 
-    response.headers.set(
-      'Cache-Control',
-      'public, s-maxage=60, stale-while-revalidate=300'
-    );
+    // No stale-while-revalidate: a Prayer a moderator hides or deletes must be
+    // gone from here within s-maxage (60 s), not served stale for minutes more.
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=0');
 
     return response;
   } catch (error) {

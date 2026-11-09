@@ -14,6 +14,8 @@ type Row = {
   hiddenById: string | null;
   deletedAt: Date | null;
   deletedById: string | null;
+  lastModeratedAt: Date | null;
+  lastModeratedById: string | null;
 };
 
 const blank = (id: string, over: Partial<Row> = {}): Row => ({
@@ -23,6 +25,8 @@ const blank = (id: string, over: Partial<Row> = {}): Row => ({
   hiddenById: null,
   deletedAt: null,
   deletedById: null,
+  lastModeratedAt: null,
+  lastModeratedById: null,
   ...over,
 });
 
@@ -58,10 +62,10 @@ describe('moderatePrayer', () => {
     expect(rows[0]).toMatchObject({ hidden: true, hiddenAt: NOW, hiddenById: 'mod-1', deletedAt: null });
   });
 
-  it('hiding again changes nothing: the first moderator and time stay on record', async () => {
+  it('hiding again changes nothing (UNCHANGED): the first moderator and time stay on record', async () => {
     const { db, rows } = fakeDb([blank('p1')]);
     await moderatePrayer(db, { prayerId: 'p1', action: 'hide', actorId: 'mod-1', now: NOW });
-    expect(await moderatePrayer(db, { prayerId: 'p1', action: 'hide', actorId: 'mod-2', now: LATER })).toBe('OK');
+    expect(await moderatePrayer(db, { prayerId: 'p1', action: 'hide', actorId: 'mod-2', now: LATER })).toBe('UNCHANGED');
     expect(rows[0]).toMatchObject({ hiddenAt: NOW, hiddenById: 'mod-1' });
   });
 
@@ -91,9 +95,25 @@ describe('moderatePrayer', () => {
     expect(await moderatePrayer(db, { prayerId: 'nope', action: 'hide', actorId: 'm', now: NOW })).toBe('NOT_FOUND');
   });
 
-  it('showing a Prayer that is not hidden is a no-op success', async () => {
+  it('showing a Prayer that is not hidden is UNCHANGED and touches nothing', async () => {
     const { db, rows } = fakeDb([blank('p1')]);
-    expect(await moderatePrayer(db, { prayerId: 'p1', action: 'show', actorId: 'm', now: NOW })).toBe('OK');
+    expect(await moderatePrayer(db, { prayerId: 'p1', action: 'show', actorId: 'm', now: NOW })).toBe('UNCHANGED');
     expect(rows[0].hidden).toBe(false);
+  });
+
+  it('keeps who moderated last and when, even after showing clears the hide record', async () => {
+    const { db, rows } = fakeDb([blank('p1')]);
+    await moderatePrayer(db, { prayerId: 'p1', action: 'hide', actorId: 'mod-1', now: NOW });
+    expect(rows[0]).toMatchObject({ lastModeratedAt: NOW, lastModeratedById: 'mod-1' });
+    await moderatePrayer(db, { prayerId: 'p1', action: 'show', actorId: 'mod-2', now: LATER });
+    expect(rows[0]).toMatchObject({ hiddenById: null, lastModeratedAt: LATER, lastModeratedById: 'mod-2' });
+    await moderatePrayer(db, { prayerId: 'p1', action: 'delete', actorId: 'mod-3', now: LATER });
+    expect(rows[0]).toMatchObject({ lastModeratedById: 'mod-3' });
+  });
+
+  it('a refused change leaves the last-moderated record alone', async () => {
+    const { db, rows } = fakeDb([blank('p1', { deletedAt: NOW, lastModeratedAt: NOW, lastModeratedById: 'mod-1' })]);
+    await moderatePrayer(db, { prayerId: 'p1', action: 'show', actorId: 'mod-2', now: LATER });
+    expect(rows[0]).toMatchObject({ lastModeratedAt: NOW, lastModeratedById: 'mod-1' });
   });
 });

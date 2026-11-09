@@ -230,7 +230,7 @@ describe('GET /api/prayers', () => {
     );
   });
 
-  it('sets Cache-Control header', async () => {
+  it('sets Cache-Control header: 60 seconds shared, never served stale (a moderated Prayer must leave within a minute)', async () => {
     mockFindMany.mockResolvedValue([]);
     mockCount.mockResolvedValue(0);
 
@@ -238,7 +238,7 @@ describe('GET /api/prayers', () => {
     const response = await GET(request);
 
     expect(response.headers.get('Cache-Control')).toBe(
-      'public, s-maxage=60, stale-while-revalidate=300'
+      'public, s-maxage=60, stale-while-revalidate=0'
     );
   });
 
