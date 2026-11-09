@@ -79,10 +79,20 @@ describe("Dockerfile", () => {
   // bundles it), so the runner installs nothing and copies no node_modules.
   it("runs the app from the standalone output alone, installing no packages in the runner", () => {
     const runner = stage("runner");
-    expect(runner.filter((l) => /\bnpm\b/.test(l))).toEqual([]);
+    expect(runner.filter((l) => /\bnpm (install|ci|i|exec|run)\b|\bnpx /.test(l) && !/rm -rf/.test(l))).toEqual([]);
     const copies = runner.filter((l) => l.startsWith("COPY "));
     expect(copies.filter((l) => /node_modules|src\/generated|\/app\/prisma/.test(l) && !l.includes("--from=sharp"))).toEqual([]);
     expect(copies).toContain("COPY --from=builder /app/.next/standalone ./");
+  });
+
+  // Trivy (cd.yml) blocks fixable HIGH advisories; npm's own bundled modules
+  // and unpatched Alpine packages carried some. The server needs neither npm.
+  it("patches Alpine packages and ships no npm or corepack in the runner and migrate images", () => {
+    for (const name of ["runner", "migrate"]) {
+      const text = stage(name).join("\n");
+      expect(text, name).toMatch(/apk upgrade --no-cache/);
+      expect(text, name).toMatch(/rm -rf \/usr\/local\/lib\/node_modules\/npm \/usr\/local\/lib\/node_modules\/corepack/);
+    }
   });
 
   // next/image needs sharp in a standalone build. It is installed on its own,
