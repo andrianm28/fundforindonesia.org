@@ -59,7 +59,7 @@ Kode di `src/lib/mfa*.ts`; tiket `.scratch/pks-pemenuhan/issues/03-mfa-totp-admi
 
 - **Kode cadangan masih ada:** masuk dengan salah satu kode cadangan (sekali pakai), lalu di `/akun/keamanan` buat kode cadangan baru. Membuat ulang kode cadangan membutuhkan kode TOTP, jadi bila perangkat sudah hilang minta Admin lain mereset.
 - **Perangkat hilang, kode cadangan masih ada atau tidak:** Admin lain membuka **Manajemen Pengguna**, menekan **Reset MFA** pada baris orang itu, dan **wajib** menulis alasan (maksimal 500 karakter; tercatat di jejak audit bersama nama pelaku). Orang itu lalu mendaftar ulang. Tidak ada reset untuk diri sendiri.
-- **Terkunci:** lima kode salah dalam lima menit menahan verifikasi sebentar; **dua puluh percobaan dalam 24 jam** mengunci verifikasi sampai jendela 24 jam lewat. Pesannya jelas di layar. Admin lain dapat mereset faktornya agar langsung bisa mendaftar ulang.
+- **Terkunci:** lima kode salah dalam lima menit menahan verifikasi sebentar; **dua puluh percobaan dalam satu hari** (jendela harian, berganti pukul 00.00 UTC = 07.00 WIB) mengunci verifikasi sampai jendela berganti. Pesannya jelas di layar. Admin lain dapat mereset faktornya agar langsung bisa mendaftar ulang.
 
 ### Admin tunggal yang kehilangan perangkat dan kode cadangan
 
