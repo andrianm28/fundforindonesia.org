@@ -9,11 +9,13 @@ import { Assignment } from "@/generated/prisma/client";
 
 /**
  * A Verifier decides the Campaign's PENDING Verification Request:
- * `{ action, requestId, ticked?, reason?, identityNote? }`. `action` is
+ * `{ action, requestId, ticked?, reason?, final?, identityNote? }`. `action` is
  * approve or reject; `requestId` names the request the Verifier looked at,
  * so a stale page never decides a newer one; `ticked` lists the checklist
  * item ids they ticked; `reason` is required to reject (an approval takes
-none, so one sent with it is ignored); `identityNote` goes
+none, so one sent with it is ignored); `final: true` on a rejection closes the
+ * Campaign for good, so its Fundraiser cannot submit it again (PKS pasal 3.4);
+ * `identityNote` goes
  * on the Fundraiser's Identity Verification if this approval records it.
  * There is no `suspend`: a Verifier raises a Flag and an Admin decides on
  * Suspension (ADR 0005, FFI-07b), so `suspend` is refused like any other
@@ -39,6 +41,7 @@ export const PATCH = withHiddenAssignmentCheck(Assignment.VERIFIER, lifecycleRou
       requestId: body.requestId,
       ticked: body.ticked,
       reason: body.reason,
+      final: body.final,
       identityNote: body.identityNote,
     };
   },

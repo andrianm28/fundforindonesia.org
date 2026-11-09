@@ -18,6 +18,7 @@ import type { CampaignLifecycleStatus } from '@/types/campaign';
 import { formatFeePercent } from '@/lib/money/platform-fee';
 import { campaignLocationLabel } from '@/lib/campaign-location';
 import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
+import { isValidCoverImage } from '@/lib/cover-image';
 import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 import { CampaignUpdatesTab } from './CampaignUpdatesTab';
@@ -30,6 +31,8 @@ export interface CampaignDetailData {
   description: string;
   story: string;
   coverImage: string;
+  /** Extra photos beside the cover, up to six (PKS pasal 3.3); absent on a Campaign with none. */
+  galleryImages?: readonly string[];
   targetAmount: number;
   collectedAmount: number;
   /** Beta only: the Gross of sandbox Payments settled for this Campaign, shown
@@ -227,6 +230,8 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // ticket -- adding it is a separate concern this ticket does not touch.
   const [shareOpen, setShareOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'donors' | 'disbursements'>('story');
+  // A second, independent check at render, as the usage report photos get: only an upload path or an https URL is ever shown.
+  const galleryImages = (campaign.galleryImages ?? []).filter(isValidCoverImage);
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
@@ -577,13 +582,28 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
         </div>
 
         {activeTab === 'story' ? (
-          <div
-            // The story is the Fundraiser's own plain text (a textarea), so it
-            // renders as text: markup in it shows as typed and never runs.
-            className="text-sm max-w-none text-text leading-relaxed whitespace-pre-line break-words"
-          >
-            {campaign.story}
-          </div>
+          <>
+            <div
+              // The story is the Fundraiser's own plain text (a textarea), so it
+              // renders as text: markup in it shows as typed and never runs.
+              className="text-sm max-w-none text-text leading-relaxed whitespace-pre-line break-words"
+            >
+              {campaign.story}
+            </div>
+            {galleryImages.length > 0 && (
+              <section aria-label="Galeri foto" className="mt-6">
+                <h2 className="text-sm font-semibold text-text mb-2">Galeri</h2>
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {galleryImages.map((src) => (
+                    <li key={src}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={src} alt={`Galeri ${campaign.title}`} loading="lazy" className="w-full h-32 object-cover rounded-lg" />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
         ) : activeTab === 'updates' ? (
           <CampaignUpdatesTab slug={campaign.slug} />
         ) : activeTab === 'donors' ? (

@@ -106,7 +106,7 @@ describe('Kampanye Saya', () => {
       ['waiting', 'Diajukan'],
       ['running', 'Aktif'],
       ['lapsed', 'Berakhir'],
-      ['frozen', 'Dibekukan'],
+      ['frozen', 'Ditangguhkan'],
     ]) {
       const card = screen.getByText(`Campaign ${slug}`).parentElement!;
       expect(card.textContent).toContain(label);
@@ -162,10 +162,49 @@ describe('Kampanye Saya', () => {
     expect(buttons).toHaveLength(2);
     expect(within(screen.getByTestId('campaign-waiting')).queryByRole('button', { name: 'Ajukan ke Verifier' })).toBeNull();
 
-    fireEvent.click(within(screen.getByTestId('campaign-draft')).getByRole('button', { name: 'Ajukan ke Verifier' }));
+    const draft = within(screen.getByTestId('campaign-draft'));
+    fireEvent.click(draft.getByRole('checkbox', { name: /menyatakan/i }));
+    fireEvent.click(draft.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
     await waitFor(() => expect(swr.mutate).toHaveBeenCalled());
-    expect(fetchMock).toHaveBeenCalledWith('/api/campaigns/draft/verification-requests', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/campaigns/draft/verification-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ truthStatement: true }),
+    });
+  });
+
+  it('will not submit until the truth statement is ticked, and says so, without asking the server (PKS pasal 3.3)', async () => {
+    swr.data = { campaigns: [campaign('draft', 'DRAFT')], total: 1, page: 1, totalPages: 1 };
+    const fetchMock = vi.fn(async () => Response.json({}, { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MyCampaignsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    expect(await screen.findByText('Centang pernyataan kebenaran data untuk mengajukan Campaign.')).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(swr.mutate).not.toHaveBeenCalled();
+  });
+
+  it('reads a revisable rejection as Perlu revisi, and one the Verifier closed for good as Ditolak with nothing to edit or submit (PKS pasal 3.4)', () => {
+    swr.data = {
+      campaigns: [campaign('revisi', 'REJECTED'), { ...campaign('final', 'REJECTED'), rejectionFinal: true }],
+      total: 2,
+      page: 1,
+      totalPages: 1,
+    };
+
+    render(<MyCampaignsPage />);
+
+    const revisable = within(screen.getByTestId('campaign-revisi'));
+    expect(revisable.getByText('Perlu revisi')).toBeDefined();
+    expect(revisable.getByRole('link', { name: 'Edit' })).toBeDefined();
+    expect(revisable.getByRole('button', { name: 'Ajukan ke Verifier' })).toBeDefined();
+    const closed = within(screen.getByTestId('campaign-final'));
+    expect(closed.getByText('Ditolak')).toBeDefined();
+    expect(closed.queryByRole('link', { name: 'Edit' })).toBeNull();
+    expect(closed.queryByRole('button', { name: 'Ajukan ke Verifier' })).toBeNull();
   });
 
   it('offers "Tarik pengajuan" only while a request is pending, and withdraws that request', async () => {
@@ -221,6 +260,7 @@ describe('Kampanye Saya', () => {
     );
 
     render(<MyCampaignsPage />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
     expect(await screen.findByText('Tindakan ini tidak dapat dilakukan.')).toBeDefined();

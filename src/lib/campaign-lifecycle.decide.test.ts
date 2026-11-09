@@ -121,6 +121,70 @@ describe('decideVerificationRequest', () => {
     ]);
   });
 
+  describe('a final rejection (PKS pasal 3.4)', () => {
+    const rejectFinally = (db: ReturnType<typeof seeded>, extra: Record<string, unknown> = {}) =>
+      decideVerificationRequest(db.prisma as never, {
+        campaignId: 'campaign-1',
+        requestId: 'verification-open',
+        actor: verifier,
+        decision: 'reject',
+        reason: 'Terindikasi penipuan.',
+        final: true,
+        now: NOW,
+        ...extra,
+      });
+
+    it('marks the Campaign and the status change final, so the Fundraiser may not resubmit', async () => {
+      const db = seeded();
+
+      const result = await rejectFinally(db);
+
+      expect(result.campaign.lifecycleStatus).toBe('REJECTED');
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'REJECTED', rejectionFinal: true });
+      expect(db.statusChanges).toEqual([
+        expect.objectContaining({ action: 'SUBMISSION_REJECTED', toStatus: 'REJECTED', final: true }),
+      ]);
+    });
+
+    it('tells the Fundraiser in the notification that it cannot be submitted again', async () => {
+      const db = seeded();
+
+      await rejectFinally(db);
+
+      expect(db.notifications[0].message).toContain('final');
+      expect(db.notifications[0].message).toContain('tidak dapat diajukan ulang');
+      expect(db.notifications[0].message).toContain('Terindikasi penipuan.');
+    });
+
+    it('leaves an ordinary rejection revisable: no final marker on the Campaign or the change', async () => {
+      const db = seeded();
+
+      await rejectFinally(db, { final: false });
+
+      expect(db.campaign().rejectionFinal).not.toBe(true);
+      expect(db.statusChanges[0].final).not.toBe(true);
+    });
+
+    it('ignores the marker on an approval', async () => {
+      const db = seeded();
+
+      await rejectFinally(db, { decision: 'approve', ticked: ALL_REQUIRED_TICKED, reason: undefined });
+
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'ACTIVE' });
+      expect(db.campaign().rejectionFinal).not.toBe(true);
+      expect(db.statusChanges[0].final).not.toBe(true);
+    });
+
+    it.each(['yes', 1])('refuses a marker that is not a boolean (%j) before anything is written', async (final) => {
+      const db = seeded();
+
+      const error = await rejectFinally(db, { final }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(LifecycleValidationError);
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'SUBMITTED' });
+    });
+  });
+
   describe('required checklist items', () => {
     it('refuses to loloskan with a required item unticked, naming it, and changes nothing (422)', async () => {
       const db = seeded();

@@ -55,7 +55,7 @@ describe('a new SUBMISSION snapshots the items for its Fundraiser', () => {
       checklistItems: SEEDED,
     });
 
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: individual, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: individual, now: NOW });
 
     expect(ids(db.verificationRequests[0].checklist)).toEqual([
       'rencana-anggaran',
@@ -72,7 +72,7 @@ describe('a new SUBMISSION snapshots the items for its Fundraiser', () => {
       checklistItems: SEEDED,
     });
 
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: organisation, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: organisation, now: NOW });
 
     expect(ids(db.verificationRequests[0].checklist)).toEqual([
       'rencana-anggaran',

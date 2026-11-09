@@ -102,7 +102,13 @@ describe('CampaignCreatePage review step', () => {
     kind = 'DONATION',
     deadline = '2099-12-31',
     location,
-  }: { kind?: string; deadline?: string; location?: { province: string; regency: string; description: string; count: string } } = {}) {
+    galleryFiles = [],
+  }: {
+    kind?: string;
+    deadline?: string;
+    location?: { province: string; regency: string; description: string; count: string };
+    galleryFiles?: File[];
+  } = {}) {
     const { container } = render(<CampaignCreatePage />);
     await screen.findByTestId('collecting-entity');
     await screen.findByRole('option', { name: 'Bencana Alam' });
@@ -124,6 +130,9 @@ describe('CampaignCreatePage review step', () => {
 
     const cover = new File(['x'], 'cover.png', { type: 'image/png' });
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [cover] } });
+    if (galleryFiles.length > 0) {
+      fireEvent.change(document.getElementById('gallery-input')!, { target: { files: galleryFiles } });
+    }
     fireEvent.change(screen.getByPlaceholderText(/Ceritakan alasan Anda/), {
       target: { value: 'Banjir merendam ratusan rumah warga dan mereka butuh bantuan segera.' },
     });
@@ -170,6 +179,8 @@ describe('CampaignCreatePage review step', () => {
       await fillInToReview();
       fireEvent.change(await screen.findByLabelText('Berkas KTP Fundraiser'), { target: { files: [pdf()] } });
 
+      fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
+
       fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
@@ -187,6 +198,8 @@ describe('CampaignCreatePage review step', () => {
       documentAnswer = () => Response.json({ error: 'Isi berkas tidak sesuai dengan tipenya.' }, { status: 415 });
       await fillInToReview();
       fireEvent.change(await screen.findByLabelText('Berkas KTP Fundraiser'), { target: { files: [pdf()] } });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
 
       fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
@@ -215,6 +228,8 @@ describe('CampaignCreatePage review step', () => {
   it('"Ajukan ke Verifier" creates the Draft, then submits it', async () => {
     await fillInToReview();
 
+    fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
+
     fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
@@ -223,6 +238,49 @@ describe('CampaignCreatePage review step', () => {
       '/api/campaigns',
       '/api/campaigns/bantu-banjir-abc123/verification-requests',
     ]);
+  });
+
+  it('"Ajukan ke Verifier" without the truth statement creates and uploads nothing, and says what is missing (PKS pasal 3.3)', async () => {
+    await fillInToReview();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    expect(await screen.findByText('Centang pernyataan kebenaran data untuk mengajukan Campaign.')).toBeDefined();
+    expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('sends the truth statement with the submission', async () => {
+    await fillInToReview();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
+    expect(calls.find((c) => c.url.endsWith('/verification-requests'))?.body).toEqual({ truthStatement: true });
+  });
+
+  it('uploads the gallery images through /api/upload after the cover, and creates the Draft with their URLs (PKS pasal 3.3)', async () => {
+    let uploads = 0;
+    uploadAnswer = () => Response.json({ url: `/uploads/lx${uploads++}-up.jpg` });
+    await fillInToReview({ galleryFiles: [new File(['a'], 'a.png', { type: 'image/png' }), new File(['b'], 'b.jpg', { type: 'image/jpeg' })] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
+    expect(calls.filter((c) => c.url === '/api/upload')).toHaveLength(3);
+    const created = calls.find((c) => c.url === '/api/campaigns')?.body as { coverImage: string; galleryImages: string[] };
+    expect(created.coverImage).toBe('/uploads/lx0-up.jpg');
+    expect(created.galleryImages).toEqual(['/uploads/lx1-up.jpg', '/uploads/lx2-up.jpg']);
+  });
+
+  it('creates a Draft with an empty gallery when none was picked', async () => {
+    await fillInToReview();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Simpan Draft' }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));
+    expect((calls.find((c) => c.url === '/api/campaigns')?.body as { galleryImages: string[] }).galleryImages).toEqual([]);
   });
 
   it.each([
@@ -244,11 +302,14 @@ describe('CampaignCreatePage review step', () => {
     submission = { status: 500, body: { error: 'Terjadi kesalahan pada server.' } };
     await fillInToReview();
 
+    fireEvent.click(screen.getByRole('checkbox', { name: /menyatakan/i }));
+
     fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
     expect(await screen.findByText(/tersimpan sebagai Draft/)).toBeDefined();
     expect(mockPush).not.toHaveBeenCalled();
 
     submission = { status: 201, body: { campaign: { lifecycleStatus: 'SUBMITTED' } } };
+    // The statement stays ticked across the retry.
     fireEvent.click(screen.getByRole('button', { name: 'Ajukan ke Verifier' }));
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/akun/kampanye-saya'));

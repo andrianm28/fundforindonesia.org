@@ -12,12 +12,15 @@ import { refusalResponse } from '@/lib/refusal-response';
 import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
 import { campaignLocationSchema } from '@/lib/campaign-location';
 import { parseCampaignSort, rankByCountedProgress } from '@/lib/campaign-sort';
+import { galleryImagesSchema } from '@/lib/campaign-gallery';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
   description: z.string().min(1, "Deskripsi harus diisi"),
   story: z.string().min(1, "Cerita campaign harus diisi"),
   coverImage: coverImageSchema,
+  // Up to six more images beside the cover (PKS pasal 3.3).
+  galleryImages: galleryImagesSchema.optional(),
   targetAmount: z.number().positive("Target donasi harus lebih dari 0"),
   category: z.string().min(1, "Kategori harus dipilih"),
   kind: z.enum(KINDS, { message: "Kind harus dipilih" }),
@@ -105,6 +108,9 @@ export async function GET(request: NextRequest) {
     }
 
     const withCreator = { creator: { select: { name: true } } };
+    // What only the Verifier and the Fundraiser see (PKS pasal 3.2, 3.4):
+    // the public list never carries it.
+    const hidden = { beneficiaryRelationship: true, rejectionFinal: true } as const;
     let campaigns;
     let total: number;
 
@@ -124,7 +130,7 @@ export async function GET(request: NextRequest) {
       const pageIds = rankByCountedProgress(slim, sort)
         .slice(skip, skip + limit)
         .map((c) => c.id);
-      const rows = await prisma.campaign.findMany({ where: { id: { in: pageIds } }, include: withCreator });
+      const rows = await prisma.campaign.findMany({ where: { id: { in: pageIds } }, include: withCreator, omit: hidden });
       const byId = new Map(rows.map((r) => [r.id, r]));
       campaigns = pageIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
     } else {
@@ -135,7 +141,7 @@ export async function GET(request: NextRequest) {
           ? [{ deadline: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }]
           : { createdAt: 'desc' };
       [campaigns, total] = await Promise.all([
-        prisma.campaign.findMany({ where, include: withCreator, orderBy, skip, take: limit }),
+        prisma.campaign.findMany({ where, include: withCreator, omit: hidden, orderBy, skip, take: limit }),
         prisma.campaign.count({ where }),
       ]);
     }
@@ -232,6 +238,7 @@ export async function POST(request: NextRequest) {
         description,
         story,
         coverImage,
+        galleryImages: result.data.galleryImages ?? [],
         targetAmount,
         category,
         kind,

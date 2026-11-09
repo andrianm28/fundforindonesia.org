@@ -71,3 +71,16 @@ describe('verificationOutcomeEmail HTML', () => {
     expect(email.html).toContain('Tautan &lt;a href=&quot;x&quot;&gt;ini&lt;/a&gt; &amp; itu');
   });
 });
+
+describe('verificationOutcomeEmail for a final rejection (PKS pasal 3.4)', () => {
+  const email = verificationOutcomeEmail({ ...BASE, outcome: 'rejected', reason: 'Terindikasi penipuan.', final: true });
+
+  it('keeps the reason but never tells the Fundraiser to resubmit', () => {
+    for (const body of [email.text, email.html]) {
+      expect(body).toContain('Terindikasi penipuan.');
+      expect(body).toContain('bersifat final');
+      expect(body).toContain('tidak dapat diajukan ulang');
+      expect(body).not.toContain('ajukan kembali');
+    }
+  });
+});

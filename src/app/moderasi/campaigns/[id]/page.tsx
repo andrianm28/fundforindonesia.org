@@ -5,6 +5,8 @@ import { readUserEmail, SELECT_USER_EMAIL } from "@/lib/contact-fields";
 import { prisma } from "@/lib/prisma";
 import { effectiveStatus, FLAGGABLE, type ChecklistEntry } from "@/lib/campaign-lifecycle";
 import { CampaignStatusBadge } from "@/components/campaign/CampaignStatusBadge";
+import { CampaignStatusHistory } from "@/components/campaign/CampaignStatusHistory";
+import { loadCampaignStatusHistory } from "@/lib/campaign-status-history";
 import { CampaignFlagForm } from "./CampaignFlagForm";
 import { CampaignModerationActions } from "./CampaignModerationActions";
 import { holdsValidKindAuthorisation, holdsValidPermit, requiresKindAuthorisation } from "@/lib/collecting-entity";
@@ -104,7 +106,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
   // The duplicate hints come with it: the up-to-five Campaigns this one most
   // resembles, so a duplicate or a repeat fraud is caught before the Campaign
   // is published rather than after (PRD FFI-05, prd-compliance 14).
-  const [openRequest, identity, hints, similarityThreshold] = await Promise.all([
+  const [openRequest, identity, hints, similarityThreshold, history] = await Promise.all([
     prisma.verificationRequest.findFirst({
       where: { campaignId: campaign.id, outcome: "PENDING" },
       orderBy: { submittedAt: "desc" },
@@ -112,6 +114,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
     prisma.identityVerification.findUnique({ where: { userId: campaign.creatorId } }),
     findDuplicateCampaignHints(prisma, { campaignId: campaign.id }),
     resolveDuplicateSimilarityThreshold(prisma),
+    loadCampaignStatusHistory(prisma, campaign.id),
   ]);
   // The papers behind the checklist (ticket 64): the Campaign's own, by the
   // item they evidence, and the Collecting Entity's legal documents.
@@ -183,7 +186,7 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
             <h1 className="text-lg font-semibold text-text">
               {campaign.title}
             </h1>
-            <CampaignStatusBadge status={status} />
+            <CampaignStatusBadge status={status} rejectionFinal={campaign.rejectionFinal} />
           </div>
 
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -249,7 +252,31 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
               }
             />
             <InfoItem label="Hubungan dengan Penerima Manfaat" value={campaign.beneficiaryRelationship || "Belum diisi"} />
+            {openRequest?.truthStatementAcceptedAt && (
+              <InfoItem
+                label="Pernyataan Kebenaran Data"
+                value={`Dicentang Fundraiser pada ${openRequest.truthStatementAcceptedAt.toLocaleString("id-ID", {
+                  dateStyle: "long",
+                  timeStyle: "short",
+                  timeZone: "Asia/Jakarta",
+                })} WIB`}
+              />
+            )}
           </div>
+
+          {/* Gallery */}
+          {campaign.galleryImages.length > 0 && (
+            <div className="mt-6">
+              <h2 className="text-sm font-semibold text-text mb-2">Galeri</h2>
+              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {campaign.galleryImages.map((src) => (
+                  <li key={src} className="relative h-28 bg-bg-secondary rounded-lg overflow-hidden">
+                    <Image src={src} alt={`Galeri ${campaign.title}`} fill className="object-cover" />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Description */}
           <div className="mt-6">
@@ -372,6 +399,10 @@ export default async function ModerasiCampaignDetailPage({ params }: PageProps) 
           identityVerifiedAt={identity?.verifiedAt ?? null}
           collectingEntityName={entity?.name ?? null}
         />
+      </div>
+
+      <div className="mt-6">
+        <CampaignStatusHistory entries={history} />
       </div>
 
       {/* A Flag is raised where an Admin could suspend (ADR 0015); the

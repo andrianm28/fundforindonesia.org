@@ -34,6 +34,8 @@ export type CampaignRow = {
   targetAmount: number;
   /** The Partner Organisation it collects under; `partner-1` unless a test says otherwise. */
   collectingEntityId: string | null;
+  /** True once a Verifier rejected it for good (PKS pasal 3.4); `false` as the column defaults. */
+  rejectionFinal?: boolean;
 };
 
 export type PartnerOrganisationRow = {
@@ -123,6 +125,8 @@ export type StatusChangeRow = {
   actorId: string | null;
   capacity: string;
   reason: string | null;
+  /** On a final SUBMISSION_REJECTED only (PKS pasal 3.4); absent means `false`, as the column defaults. */
+  final?: boolean;
   createdAt: Date;
 };
 
@@ -226,6 +230,8 @@ export type VerificationRequestRow = {
   kind?: 'SUBMISSION' | 'CHANGE' | 'AMOUNT_REVIEW';
   /** The Gross and threshold that raised an AMOUNT_REVIEW, or null. */
   raisedByAmount?: unknown;
+  /** When the Fundraiser ticked the truth statement (PKS pasal 3.3); set on a SUBMISSION. */
+  truthStatementAcceptedAt?: Date | null;
 };
 
 export type ChecklistAuditRow = {
@@ -933,7 +939,7 @@ export function makeCampaignDb(
         },
       },
       verificationRequest: {
-        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedById?: string | null; submittedAt?: Date; proposedChanges?: unknown; kind?: VerificationRequestRow['kind']; raisedByAmount?: unknown } }) => {
+        create: async ({ data }: { data: Pick<VerificationRequestRow, 'campaignId' | 'checklist' | 'isFirst' | 'collectingEntityId'> & { submittedById?: string | null; submittedAt?: Date; proposedChanges?: unknown; kind?: VerificationRequestRow['kind']; raisedByAmount?: unknown; truthStatementAcceptedAt?: Date } }) => {
           const row: VerificationRequestRow = {
             id: `verification-${nextId++}`,
             submittedById: 'creator-1',

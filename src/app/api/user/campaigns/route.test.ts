@@ -78,6 +78,19 @@ describe('GET /api/user/campaigns', () => {
     expect(pending).toEqual({ waiting: 'open', refused: null });
   });
 
+  it('sends whether a Rejected Campaign was closed for good, so the list can read Ditolak and stop offering a resubmission (PKS pasal 3.4)', async () => {
+    holder.db = makeCampaignDb({
+      campaigns: [
+        campaignRow({ id: 'revisi', slug: 'revisi', lifecycleStatus: 'REJECTED', rejectionFinal: false }),
+        campaignRow({ id: 'final', slug: 'final', lifecycleStatus: 'REJECTED', rejectionFinal: true }),
+      ],
+    });
+
+    const closed = Object.fromEntries((await fetchMine()).map((c) => [c.slug, c.rejectionFinal]));
+
+    expect(closed).toEqual({ revisi: false, final: true });
+  });
+
   it("sends the Fundraiser's income summary, asked for this Fundraiser only (PKS 3.9)", async () => {
     const income = { total: 9, perCampaign: [{ campaignId: 'running', slug: 'running', title: 'R', totalAmount: 9, donationCount: 1 }] };
     vi.mocked(incomeSummaryForFundraiser).mockResolvedValueOnce(income);

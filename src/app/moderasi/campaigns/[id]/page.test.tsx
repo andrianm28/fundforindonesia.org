@@ -10,6 +10,7 @@ vi.mock('@/lib/prisma', () => ({
     duplicateSimilarityThreshold: { findFirst: vi.fn() },
     document: { findMany: vi.fn(async () => []) },
     verificationChecklistItem: { findMany: vi.fn(async () => []) },
+    campaignStatusChange: { findMany: vi.fn(async () => []) },
     $queryRaw: vi.fn(),
   },
 }));
@@ -39,6 +40,8 @@ function campaign(lifecycleStatus: CampaignStatus, overrides: Record<string, unk
     createdAt: new Date('2026-09-01T00:00:00Z'),
     creatorId: 'creator-1',
     creator: { name: 'Budi', email: 'budi@test.com' },
+    galleryImages: [] as string[],
+    rejectionFinal: false,
     ...overrides,
   };
 }
@@ -256,6 +259,44 @@ describe('the moderation page of one Campaign', () => {
       requestId: 'verification-1',
       reason: 'KTP buram.',
     });
+  });
+
+  it('an ordinary rejection leaves the Campaign revisable: no final marker is sent (PKS pasal 3.4)', async () => {
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Alasan penolakan/ }), { target: { value: 'KTP buram.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Tolak/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).final).toBeUndefined();
+  });
+
+  it('ticking "Tolak final" sends final: true with the rejection, and says the Fundraiser cannot resubmit', async () => {
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    const finalBox = screen.getByRole('checkbox', { name: /Tolak final/ });
+    expect(finalBox.closest('label')?.textContent).toContain('tidak dapat diajukan ulang');
+    fireEvent.click(finalBox);
+    fireEvent.change(screen.getByRole('textbox', { name: /Alasan penolakan/ }), { target: { value: 'Penipuan.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Tolak/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      action: 'reject',
+      reason: 'Penipuan.',
+      final: true,
+    });
+  });
+
+  it('never sends the final marker with an approval, even if it was ticked first', async () => {
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tolak final/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Loloskan/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).final).toBeUndefined();
   });
 
   it('refuses to reject without a reason before asking the server', async () => {
@@ -509,5 +550,60 @@ describe('the documents on the moderation page (ticket 64)', () => {
     expect((screen.getByRole('checkbox', { name: /KTP penanggung jawab/ }) as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole('checkbox', { name: /Foto kondisi/ }) as HTMLInputElement).disabled).toBe(false);
     vi.mocked(prisma.verificationChecklistItem.findMany).mockResolvedValue([] as never);
+  });
+});
+
+describe('what PKS pasal 3.3 and 3.4 add to the moderation page', () => {
+  it('shows the status history, oldest first, so the Verifier sees how the Campaign got here', async () => {
+    vi.mocked(prisma.campaignStatusChange.findMany).mockResolvedValue([
+      { id: 'c1', action: 'SUBMITTED', final: false, capacity: 'FUNDRAISER', reason: null, createdAt: new Date('2026-09-01T01:00:00Z'), actor: { name: 'Budi' } },
+      { id: 'c2', action: 'SUBMISSION_REJECTED', final: false, capacity: 'VERIFIER', reason: 'KTP buram.', createdAt: new Date('2026-09-02T01:00:00Z'), actor: { name: 'Sari' } },
+      { id: 'c3', action: 'SUBMITTED', final: false, capacity: 'FUNDRAISER', reason: null, createdAt: new Date('2026-09-03T01:00:00Z'), actor: { name: 'Budi' } },
+    ] as never);
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    const history = screen.getByRole('region', { name: 'Riwayat Status' });
+    expect(Array.from(history.querySelectorAll('li > p:first-child')).map((p) => p.textContent)).toEqual([
+      'Diajukan',
+      'Perlu revisi',
+      'Diajukan',
+    ]);
+    expect(history.textContent).toContain('KTP buram.');
+    vi.mocked(prisma.campaignStatusChange.findMany).mockResolvedValue([] as never);
+  });
+
+  it('shows Disetujui in the history of an approved Campaign', async () => {
+    vi.mocked(prisma.campaignStatusChange.findMany).mockResolvedValue([
+      { id: 'c1', action: 'SUBMISSION_APPROVED', final: false, capacity: 'VERIFIER', reason: null, createdAt: new Date('2026-09-02T01:00:00Z'), actor: { name: 'Sari' } },
+    ] as never);
+    await renderFor(campaign('ACTIVE'));
+
+    expect(screen.getByRole('region', { name: 'Riwayat Status' }).textContent).toContain('Disetujui');
+    vi.mocked(prisma.campaignStatusChange.findMany).mockResolvedValue([] as never);
+  });
+
+  it('badges a final rejection Ditolak and a revisable one Perlu revisi', async () => {
+    await renderFor(campaign('REJECTED', { rejectionFinal: true }));
+    expect(screen.getByText('Ditolak', { selector: 'span' })).toBeTruthy();
+    cleanup();
+    await renderFor(campaign('REJECTED'));
+    expect(screen.getByText('Perlu revisi', { selector: 'span' })).toBeTruthy();
+  });
+
+  it('shows the gallery and when the Fundraiser ticked the truth statement', async () => {
+    await renderFor(campaign('SUBMITTED', { galleryImages: ['/uploads/lx1-ab.jpg', '/uploads/lx2-cd.png'] }), {
+      request: { ...PENDING_REQUEST, truthStatementAcceptedAt: new Date('2026-09-24T01:30:00Z') } as never,
+    });
+
+    expect(screen.getAllByAltText('Galeri Sumur untuk Desa')).toHaveLength(2);
+    expect(screen.getByText('Pernyataan Kebenaran Data')).toBeTruthy();
+    expect(screen.getByText(/08\.30 WIB/)).toBeTruthy();
+  });
+
+  it('says nothing of a truth statement on a request that predates it', async () => {
+    await renderFor(campaign('SUBMITTED'), { request: PENDING_REQUEST });
+
+    expect(screen.queryByText('Pernyataan Kebenaran Data')).toBeNull();
+    expect(screen.queryByText('Galeri')).toBeNull();
   });
 });

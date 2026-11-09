@@ -133,6 +133,27 @@ describe('GET /api/campaigns/[slug]', () => {
     expect(body.campaign.donationCount).toBe(342);
   });
 
+  it('shows the gallery publicly but none of the verification-only fields (PKS pasal 3.3, 3.4)', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'campaign-1', slug: 'galeri', title: 'Galeri', description: 'd', story: 's',
+      coverImage: '/uploads/a-b.jpg',
+      galleryImages: ['/uploads/c-d.jpg', '/uploads/e-f.png'],
+      rejectionFinal: true,
+      beneficiaryRelationship: 'Keluarga',
+      targetAmount: 1000, collectedAmount: 0, category: 'x', kind: 'DONATION',
+      lifecycleStatus: 'ACTIVE', isUrgent: false, isDemo: false, deadline: null, creatorId: 'user-1',
+      createdAt: new Date(), updatedAt: new Date(),
+      creator: { id: 'user-1', name: 'Y', avatar: null }, _count: { donations: 0 },
+    } as never);
+
+    const response = await GET(createRequest('galeri'), { params: Promise.resolve({ slug: 'galeri' }) });
+    const { campaign } = await response.json();
+
+    expect(campaign.galleryImages).toEqual(['/uploads/c-d.jpg', '/uploads/e-f.png']);
+    expect(campaign).not.toHaveProperty('rejectionFinal');
+    expect(campaign).not.toHaveProperty('beneficiaryRelationship');
+  });
+
   it('carries the Platform Fee rate in force, resolved server-side (prd-compliance 17)', async () => {
     mockFindUnique.mockResolvedValue({
       id: 'campaign-1',
@@ -839,6 +860,49 @@ describe('PATCH /api/campaigns/[slug]', () => {
 
     expect(response.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  describe('the gallery (PKS pasal 3.3)', () => {
+    const upload = (n: number) => `/uploads/lx${n}-abc${n}.jpg`;
+    const owner = {
+      user: { id: 'creator-user', name: 'Creator', email: 'creator@test.com', assignments: [] },
+      expires: '2099-01-01',
+    };
+
+    beforeEach(() => {
+      mockGetServerSession.mockResolvedValue(owner as never);
+      mockFindUnique.mockResolvedValue({
+        id: 'campaign-1',
+        creatorId: 'creator-user', lifecycleStatus: 'DRAFT', deadline: null,
+      } as never);
+      mockUpdate.mockResolvedValue({ id: 'campaign-1', creator: { id: 'creator-user', name: 'C', avatar: null } } as never);
+    });
+
+    it('replaces the gallery with up to six images', async () => {
+      const response = await PATCH(createRequest('my-campaign', 'PATCH', { galleryImages: [1, 2, 3, 4, 5, 6].map(upload) }), {
+        params: Promise.resolve({ slug: 'my-campaign' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate.mock.calls[0][0].data.galleryImages).toEqual([1, 2, 3, 4, 5, 6].map(upload));
+    });
+
+    it('clears it with an empty list', async () => {
+      await PATCH(createRequest('my-campaign', 'PATCH', { galleryImages: [] }), {
+        params: Promise.resolve({ slug: 'my-campaign' }),
+      });
+
+      expect(mockUpdate.mock.calls[0][0].data.galleryImages).toEqual([]);
+    });
+
+    it('refuses a seventh image with 400 and writes nothing', async () => {
+      const response = await PATCH(createRequest('my-campaign', 'PATCH', { galleryImages: [1, 2, 3, 4, 5, 6, 7].map(upload) }), {
+        params: Promise.resolve({ slug: 'my-campaign' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
   });
 
   it('returns 403 for CAMPAIGN_CREATOR who is NOT the owner', async () => {

@@ -31,6 +31,8 @@ export async function GET(request: NextRequest) {
         collectedAmount: true,
         targetAmount: true,
         lifecycleStatus: true,
+        // Whether a Rejected Campaign may be submitted again (PKS pasal 3.4).
+        rejectionFinal: true,
         deadline: true,
         createdAt: true,
       },

@@ -127,6 +127,7 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
     description: campaign.description,
     story: campaign.story,
     coverImage: campaign.coverImage,
+    galleryImages: campaign.galleryImages,
     targetAmount: campaign.targetAmount,
     collectedAmount: collectedAmountForPublic,
     testDonationAmount,

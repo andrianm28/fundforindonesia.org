@@ -6,6 +6,8 @@ import { CampaignStatusChangeAction, CancellationRequestStatus } from '@/generat
 import { CampaignStatusBadge } from '@/components/campaign/CampaignStatusBadge';
 import { AdminCampaignLifecycleActions } from '@/components/admin/AdminCampaignLifecycleActions';
 import { AdminCampaignRefundProposals } from '@/components/admin/AdminCampaignRefundProposals';
+import { CampaignStatusHistory } from '@/components/campaign/CampaignStatusHistory';
+import { loadCampaignStatusHistory } from '@/lib/campaign-status-history';
 
 // Rendered per request: open Flags, Suspensions and Cancellation requests change.
 export const dynamic = 'force-dynamic';
@@ -62,6 +64,7 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
       deadline: true,
       creatorId: true,
       isUrgent: true,
+      rejectionFinal: true,
     },
   });
   if (!campaign) {
@@ -72,7 +75,7 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
   const status = effectiveStatus(campaign, now);
   const isOwnCampaign = actorId === campaign.creatorId;
 
-  const [openFlags, pendingCancellationRequest, latestSuspension] = await Promise.all([
+  const [openFlags, pendingCancellationRequest, latestSuspension, history] = await Promise.all([
     isOwnCampaign
       ? Promise.resolve([])
       : prisma.campaignFlag.findMany({
@@ -91,6 +94,7 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
           select: { actorId: true },
         })
       : Promise.resolve(null),
+    loadCampaignStatusHistory(prisma, campaign.id),
   ]);
 
   return (
@@ -98,7 +102,7 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{campaign.title}</h1>
         <div className="mt-1">
-          <CampaignStatusBadge status={status} />
+          <CampaignStatusBadge status={status} rejectionFinal={campaign.rejectionFinal} />
         </div>
       </div>
 
@@ -130,6 +134,10 @@ export default async function AdminCampaignLifecyclePage({ params }: RouteContex
         {(status === 'SUSPENDED' || status === 'CANCELLED') && (
           <AdminCampaignRefundProposals campaignSlug={campaign.slug} />
         )}
+      </div>
+
+      <div className="mt-6">
+        <CampaignStatusHistory entries={history} />
       </div>
     </div>
   );

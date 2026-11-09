@@ -117,6 +117,18 @@ describe('the Campaign page payload', () => {
     vi.mocked(prisma.payment.findMany).mockResolvedValue([]);
   });
 
+  it('carries the gallery to the view, and none of the verification-only columns (PKS pasal 3.3, 3.4)', async () => {
+    const campaign = await campaignHandedToView({
+      galleryImages: ['/uploads/lx1-ab.jpg'],
+      rejectionFinal: true,
+      beneficiaryRelationship: 'Keluarga',
+    });
+
+    expect(campaign.galleryImages).toEqual(['/uploads/lx1-ab.jpg']);
+    expect(campaign).not.toHaveProperty('rejectionFinal');
+    expect(campaign).not.toHaveProperty('beneficiaryRelationship');
+  });
+
   it('carries only the id and name of the Collecting Entity to the view (PKS Pasal 12(5))', async () => {
     const campaign = await campaignHandedToView({
       collectingEntity: { id: 'org-1', name: 'Yayasan Contoh' },

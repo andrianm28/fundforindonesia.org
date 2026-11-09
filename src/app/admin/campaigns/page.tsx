@@ -92,7 +92,7 @@ export default async function AdminCampaignsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <CampaignStatusBadge status={effectiveStatus(campaign, now)} />
+                      <CampaignStatusBadge status={effectiveStatus(campaign, now)} rejectionFinal={campaign.rejectionFinal} />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {formatCurrency(campaign.targetAmount)}

@@ -759,3 +759,40 @@ describe('CampaignDetailView -- Donatur teratas tab (PKS 3.7b)', () => {
     expect(screen.queryByRole('button', { name: 'Donatur teratas' })).toBeNull();
   });
 });
+
+describe('the gallery (PKS pasal 3.3)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('shows the Campaign\'s gallery images under the story', () => {
+    render(
+      <CampaignDetailView campaign={{ ...mockCampaign, galleryImages: ['/uploads/lx1-ab.jpg', 'https://cdn.test/b.png'] }} />,
+    );
+
+    const gallery = screen.getByRole('region', { name: 'Galeri foto' });
+    expect(Array.from(gallery.querySelectorAll('img')).map((img) => img.getAttribute('src'))).toEqual([
+      '/uploads/lx1-ab.jpg',
+      'https://cdn.test/b.png',
+    ]);
+  });
+
+  it('shows no gallery section for a Campaign with none, or without the field', () => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, galleryImages: [] }} />);
+    expect(screen.queryByRole('region', { name: 'Galeri foto' })).toBeNull();
+    cleanup();
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    expect(screen.queryByRole('region', { name: 'Galeri foto' })).toBeNull();
+  });
+
+  it('never renders an entry that is not an upload path or an https URL, even if one reached the row', () => {
+    render(
+      <CampaignDetailView
+        campaign={{ ...mockCampaign, galleryImages: ['javascript:alert(1)', 'http://plain.test/a.jpg', '/uploads/lx2-cd.png'] }}
+      />,
+    );
+
+    const gallery = screen.getByRole('region', { name: 'Galeri foto' });
+    expect(Array.from(gallery.querySelectorAll('img')).map((img) => img.getAttribute('src'))).toEqual(['/uploads/lx2-cd.png']);
+  });
+});

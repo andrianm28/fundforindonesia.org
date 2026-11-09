@@ -102,6 +102,21 @@ describe('PATCH /api/moderasi/campaigns/[id]', () => {
     expect(state.db.verificationRequests[0]).toMatchObject({ outcome: 'REJECTED', reason: 'KTP buram.' });
   });
 
+  it('reject with final: true closes the Campaign for good (PKS pasal 3.4)', async () => {
+    const response = await patch({ action: 'reject', requestId: 'verification-1', reason: 'Penipuan.', final: true });
+
+    expect(response.status).toBe(200);
+    expect(state.db.campaign()).toMatchObject({ lifecycleStatus: 'REJECTED', rejectionFinal: true });
+    expect(state.db.statusChanges[0]).toMatchObject({ action: 'SUBMISSION_REJECTED', final: true });
+  });
+
+  it('answers 400 to a final marker that is not a boolean and changes nothing', async () => {
+    const response = await patch({ action: 'reject', requestId: 'verification-1', reason: 'Penipuan.', final: 'ya' });
+
+    expect(response.status).toBe(400);
+    expect(state.db.verificationRequests[0].outcome).toBe('PENDING');
+  });
+
   it('answers 400 to a rejection without a reason and changes nothing', async () => {
     const response = await patch({ action: 'reject', requestId: 'verification-1' });
 

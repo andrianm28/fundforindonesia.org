@@ -55,9 +55,22 @@ export function parseRupiahInput(value: string): number {
 }
 
 export const COVER_UPLOAD_ERROR = 'Gagal mengunggah gambar sampul. Silakan coba lagi.';
+export const GALLERY_UPLOAD_ERROR = 'Gagal mengunggah gambar galeri. Silakan coba lagi.';
 
 /** Uploads a cover image, returning its URL; throws the Indonesian refusal on failure. */
-export async function uploadCoverImage(file: File): Promise<string> {
+export function uploadCoverImage(file: File): Promise<string> {
+  return uploadImage(file, COVER_UPLOAD_ERROR);
+}
+
+/**
+ * Uploads one gallery image through the same route as the cover (/api/upload,
+ * which checks the bytes, not the declared type), returning its URL.
+ */
+export function uploadGalleryImage(file: File): Promise<string> {
+  return uploadImage(file, GALLERY_UPLOAD_ERROR);
+}
+
+async function uploadImage(file: File, failure: string): Promise<string> {
   const body = new FormData();
   body.append('file', file);
   let uploaded: { url?: string } | null = null;
@@ -67,7 +80,7 @@ export async function uploadCoverImage(file: File): Promise<string> {
   } catch {
     uploaded = null;
   }
-  if (!uploaded?.url) throw new Error(COVER_UPLOAD_ERROR);
+  if (!uploaded?.url) throw new Error(failure);
   return uploaded.url;
 }
 

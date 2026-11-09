@@ -10,8 +10,11 @@ import {
   KindAuthorisationRequiredError,
   domainErrorToHttp,
   InvalidTransitionError,
+  LifecycleValidationError,
   NotAuthorizedError,
+  RejectedForGoodError,
   submitCampaign,
+  TRUTH_STATEMENT_REQUIRED_MESSAGE,
 } from './campaign-lifecycle';
 import {
   campaignRow,
@@ -48,6 +51,7 @@ describe('submitCampaign', () => {
 
     const result = await submitCampaign(db.prisma as never, {
       campaignId: 'campaign-1',
+      truthStatement: true,
       actor: fundraiser,
       now: NOW,
     });
@@ -70,6 +74,8 @@ describe('submitCampaign', () => {
         decidedById: null,
         decidedAt: null,
         isFirst: true,
+        // PKS pasal 3.3: the ticked statement is stored with its time.
+        truthStatementAcceptedAt: NOW,
         collectingEntityId: 'partner-1',
         proposedChanges: null,
         // Which of the three kinds of request this is (prd-compliance 38): a
@@ -91,6 +97,68 @@ describe('submitCampaign', () => {
     ]);
   });
 
+  it.each([undefined, false, 'true', 1, null])(
+    'refuses a submission whose truth statement is %j, 400 VALIDATION, and writes nothing (PKS pasal 3.3)',
+    async (truthStatement) => {
+      const db = makeCampaignDb({
+        campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'DRAFT' })],
+        checklistItems: CHECKLIST,
+      });
+
+      const error = await submitCampaign(db.prisma as never, {
+        campaignId: 'campaign-1',
+        truthStatement,
+        actor: fundraiser,
+        now: NOW,
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(LifecycleValidationError);
+      expect(error.field).toBe('truthStatement');
+      expect(domainErrorToHttp(error)).toMatchObject({
+        status: 400,
+        body: { code: 'VALIDATION', error: TRUTH_STATEMENT_REQUIRED_MESSAGE },
+      });
+      expect(db.campaign()).toMatchObject({ lifecycleStatus: 'DRAFT' });
+      expect(db.verificationRequests).toEqual([]);
+      expect(db.statusChanges).toEqual([]);
+    },
+  );
+
+  it('refuses to resubmit a Campaign the Verifier rejected for good, 409, and writes nothing (PKS pasal 3.4)', async () => {
+    const db = makeCampaignDb({
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'REJECTED', rejectionFinal: true })],
+      checklistItems: CHECKLIST,
+    });
+
+    const error = await submitCampaign(db.prisma as never, {
+      campaignId: 'campaign-1',
+      truthStatement: true,
+      actor: fundraiser,
+      now: NOW,
+    }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(RejectedForGoodError);
+    expect(domainErrorToHttp(error)).toMatchObject({ status: 409, body: { code: 'INVALID_TRANSITION' } });
+    expect(db.campaign()).toMatchObject({ lifecycleStatus: 'REJECTED' });
+    expect(db.verificationRequests).toEqual([]);
+  });
+
+  it('still resubmits a Rejected Campaign that the Verifier did not close for good', async () => {
+    const db = makeCampaignDb({
+      campaigns: [campaignRow({ deadline: DEADLINE, lifecycleStatus: 'REJECTED', rejectionFinal: false })],
+      checklistItems: CHECKLIST,
+    });
+
+    const result = await submitCampaign(db.prisma as never, {
+      campaignId: 'campaign-1',
+      truthStatement: true,
+      actor: fundraiser,
+      now: NOW,
+    });
+
+    expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
+  });
+
   it('resubmits a Rejected Campaign as a new, non-first request, keeping the rejected one as it was', async () => {
     const rejected = verificationRequestRow({
       id: 'verification-old',
@@ -105,7 +173,7 @@ describe('submitCampaign', () => {
       verificationRequests: [rejected],
     });
 
-    const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+    const result = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW });
 
     expect(result.campaign.lifecycleStatus).toBe('SUBMITTED');
     expect(db.verificationRequests).toHaveLength(2);
@@ -126,7 +194,7 @@ describe('submitCampaign', () => {
       ],
     });
 
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW });
 
     expect(db.verificationRequests[0].checklist).toEqual([
       { id: 'first', label: 'Pertama', required: false, position: 1, ticked: false, requiresDocument: false },
@@ -142,7 +210,7 @@ describe('submitCampaign', () => {
         checklistItems: CHECKLIST,
       });
 
-      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW }).catch(
         (e: unknown) => e,
       );
 
@@ -164,7 +232,7 @@ describe('submitCampaign', () => {
       checklistItems: CHECKLIST,
     });
 
-    const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, now: NOW }).catch(
+    const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor, now: NOW }).catch(
       (e: unknown) => e,
     );
 
@@ -182,6 +250,7 @@ describe('submitCampaign', () => {
 
     await submitCampaign(db.prisma as never, {
       campaignId: 'campaign-1',
+      truthStatement: true,
       actor: { userId: 'creator-1', assignments: ['ADMIN', 'VERIFIER'] },
       now: NOW,
     });
@@ -199,7 +268,7 @@ describe('submitCampaign', () => {
       data.verificationRequests.push(verificationRequestRow({ id: 'verification-first' }));
     });
 
-    const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+    const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW }).catch(
       (e: unknown) => e,
     );
 
@@ -214,7 +283,7 @@ describe('submitCampaign', () => {
         checklistItems: CHECKLIST,
       });
 
-      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW }).catch(
         (e: unknown) => e,
       );
 
@@ -231,7 +300,7 @@ describe('submitCampaign', () => {
         checklistItems: CHECKLIST,
       });
 
-      await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+      await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW });
 
       expect(db.campaign().lifecycleStatus).toBe('SUBMITTED');
     });
@@ -247,7 +316,7 @@ describe('submitCampaign', () => {
         checklistItems: CHECKLIST,
       });
 
-      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+      const error = await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW }).catch(
         (e: unknown) => e,
       );
 
@@ -275,6 +344,7 @@ describe('submitCampaign', () => {
 
       const result = await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -285,7 +355,7 @@ describe('submitCampaign', () => {
 
   describe('the Collecting Entity and its Fundraising Permit (prd-compliance 10, ADR 0010)', () => {
     async function refusal(db: ReturnType<typeof makeCampaignDb>) {
-      return submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW }).catch(
+      return submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW }).catch(
         (e: unknown) => e,
       );
     }
@@ -353,6 +423,7 @@ describe('submitCampaign', () => {
 
       const result = await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -369,6 +440,7 @@ describe('submitCampaign', () => {
 
       await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -391,6 +463,7 @@ describe('submitCampaign', () => {
 
       const error = await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       }).catch((e: unknown) => e);
@@ -401,7 +474,7 @@ describe('submitCampaign', () => {
 
   describe('Kind Authorisation (prd-compliance 11, CONTEXT.md, ADR 0013)', () => {
     async function refusal(db: ReturnType<typeof makeCampaignDb>, actor = fundraiser) {
-      return submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor, now: NOW }).catch(
+      return submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor, now: NOW }).catch(
         (e: unknown) => e,
       );
     }
@@ -433,6 +506,7 @@ describe('submitCampaign', () => {
 
       const result = await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -502,6 +576,7 @@ describe('submitCampaign', () => {
 
       await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -518,7 +593,7 @@ describe('submitCampaign', () => {
         checklistItems: PER_KIND_CHECKLIST,
       });
 
-      await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: fundraiser, now: NOW });
+      await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: fundraiser, now: NOW });
 
       expect(db.verificationRequests[0].checklist).toEqual([
         { id: 'general', label: 'Rencana anggaran', required: true, position: 1, ticked: false, requiresDocument: false },
@@ -560,6 +635,7 @@ describe('submitCampaign', () => {
 
       await submitCampaign(db.prisma as never, {
         campaignId: 'campaign-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -582,6 +658,7 @@ describe('submitCampaign', () => {
 
       await submitCampaign(db.prisma as never, {
         campaignId: 'wakaf-1',
+        truthStatement: true,
         actor: { userId: 'partner-fundraiser-1', assignments: [] },
         now: NOW,
       });
@@ -608,8 +685,8 @@ describe('submitCampaign', () => {
       });
 
       const partner = { userId: 'partner-fundraiser-1', assignments: [] };
-      await submitCampaign(db.prisma as never, { campaignId: 'hibah-1', actor: partner, now: NOW });
-      await submitCampaign(db.prisma as never, { campaignId: 'wakaf-1', actor: partner, now: NOW });
+      await submitCampaign(db.prisma as never, { campaignId: 'hibah-1', truthStatement: true, actor: partner, now: NOW });
+      await submitCampaign(db.prisma as never, { campaignId: 'wakaf-1', truthStatement: true, actor: partner, now: NOW });
 
       const byCampaign = Object.fromEntries(
         db.verificationRequests.map((request) => [request.campaignId, (request.checklist as { id: string }[]).map((i) => i.id)]),

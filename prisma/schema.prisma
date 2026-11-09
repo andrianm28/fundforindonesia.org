@@ -573,6 +573,14 @@ model Campaign {
   /// 3.2; "Keluarga", "Guru", "Pengurus panti"), at most 200 characters. The
   /// Verifier reads it beside the checklist item that asks for evidence of it.
   beneficiaryRelationship String?
+  /// Extra photos beside the cover (PKS pasal 3.3): at most six, each the path
+  /// /api/upload answered with. The cap is the application's (galleryImagesSchema)
+  /// and a CHECK constraint's, so a second writer cannot exceed it.
+  galleryImages           String[]       @default([])
+  /// True once a Verifier rejected the Campaign for good (PKS pasal 3.4): a
+  /// final rejection refuses resubmission, and the status reads "Ditolak"
+  /// instead of "Perlu revisi". Only meaningful while REJECTED.
+  rejectionFinal          Boolean        @default(false)
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 
@@ -693,6 +701,9 @@ model CampaignStatusChange {
   actorId    String?
   capacity   StatusChangeCapacity
   reason     String?
+  /// On SUBMISSION_REJECTED: the Verifier closed the Campaign for good, so it
+  /// cannot be resubmitted (PKS pasal 3.4). False on every other change.
+  final      Boolean                    @default(false)
   createdAt  DateTime                   @default(now())
 
   // Relations
@@ -829,6 +840,10 @@ model VerificationRequest {
   /// Submitted from Draft (the Campaign's first request) rather than from
   /// Rejected. A withdrawal returns the Campaign to Draft or Rejected by it.
   isFirst            Boolean
+  /// When the Fundraiser ticked "pernyataan kebenaran data" to submit (PKS
+  /// pasal 3.3). Set on every SUBMISSION; null on a change request, an amount
+  /// review, and requests that predate the statement.
+  truthStatementAcceptedAt DateTime?
   /// A change asked for an Active Campaign (ticket 12, FFI-05): the new
   /// target and/or deadline the Campaign keeps running without until a
   /// Verifier approves this request. Null on every SUBMISSION and on every

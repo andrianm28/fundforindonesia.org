@@ -19,24 +19,43 @@ const TONE: Record<CampaignLifecycleStatus, string> = {
 const BADGE_LABEL: Record<CampaignLifecycleStatus, string> = {
   DRAFT: 'Draf',
   SUBMITTED: 'Diajukan',
-  REJECTED: 'Ditolak',
+  REJECTED: 'Perlu revisi',
   ACTIVE: 'Aktif',
-  SUSPENDED: 'Dibekukan',
+  SUSPENDED: 'Ditangguhkan',
   CANCELLED: 'Ditarik',
   COMPLETED: 'Selesai',
   EXPIRED: 'Berakhir',
 };
 
 /**
+ * The badge text for a status (PKS pasal 3.3). A Rejected Campaign reads
+ * "Perlu revisi" while its Fundraiser may still resubmit it, and "Ditolak"
+ * once the Verifier rejected it for good (`rejectionFinal`).
+ */
+export function campaignBadgeLabel(
+  status: CampaignLifecycleStatus,
+  options: { rejectionFinal?: boolean } = {}
+): string {
+  if (status === 'REJECTED' && options.rejectionFinal) return 'Ditolak';
+  return BADGE_LABEL[status];
+}
+
+/**
  * A Campaign's status as a badge, in Indonesian. Pass the effective status,
  * so an Active Campaign past its deadline reads as Berakhir (Expired).
  */
-export function CampaignStatusBadge({ status }: { status: CampaignLifecycleStatus }) {
+export function CampaignStatusBadge({
+  status,
+  rejectionFinal = false,
+}: {
+  status: CampaignLifecycleStatus;
+  rejectionFinal?: boolean;
+}) {
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TONE[status]}`}
     >
-      {BADGE_LABEL[status]}
+      {campaignBadgeLabel(status, { rejectionFinal })}
     </span>
   );
 }

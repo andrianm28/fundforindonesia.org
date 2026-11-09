@@ -105,7 +105,7 @@ describe('ticking a document item (ticket 64)', () => {
       checklistItems: [checklistItemRow({ id: 'ktp', label: 'KTP', requiresDocument: true })],
     });
 
-    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', actor: { userId: 'creator-1', assignments: [] }, now: NOW });
+    await submitCampaign(db.prisma as never, { campaignId: 'campaign-1', truthStatement: true, actor: { userId: 'creator-1', assignments: [] }, now: NOW });
 
     expect(db.verificationRequests[0].checklist).toEqual([
       { id: 'ktp', label: 'KTP', required: true, position: 1, ticked: false, requiresDocument: true },

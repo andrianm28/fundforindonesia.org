@@ -18,6 +18,7 @@ import {
 import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEntity } from '@/lib/collecting-entity-guard';
 import { KINDS } from '@/lib/campaign-kind';
 import { campaignLocationSchema } from '@/lib/campaign-location';
+import { galleryImagesSchema } from '@/lib/campaign-gallery';
 import { isPubliclyViewable, mayViewCampaign } from '@/lib/campaign-visibility';
 import { PRIVATE_CACHE_CONTROL, campaignNotFound } from '@/lib/campaign-visibility-route';
 import { resolvePlatformFeeBasisForCampaign } from '@/lib/money/platform-fee-config';
@@ -39,6 +40,9 @@ const editCampaignSchema = z.object({
   description: z.string().min(1, "Deskripsi harus diisi"),
   story: z.string().min(1, "Cerita campaign harus diisi"),
   coverImage: coverImageSchema,
+  // Up to six more images beside the cover (PKS pasal 3.3); the whole list
+  // is replaced. Editable wherever the story and cover are.
+  galleryImages: galleryImagesSchema,
   kind: z.enum(KINDS, { message: "Kind tidak dikenal" }),
   // null clears it, which only a wakaf Campaign may have.
   deadline: z.string().datetime().nullable(),
@@ -176,6 +180,7 @@ export async function GET(
         description: campaign.description,
         story: campaign.story,
         coverImage: campaign.coverImage,
+        galleryImages: campaign.galleryImages,
         targetAmount: campaign.targetAmount,
         collectedAmount: collectedAmountForPublic,
         category: campaign.category,
