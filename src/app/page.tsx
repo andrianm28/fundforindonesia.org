@@ -10,6 +10,7 @@ import type { CampaignCardData } from '@/types/campaign';
 import type { PrayerStreamItem } from '@/lib/hooks/usePrayerStream';
 import { quickActionTiles } from '@/lib/home/quickActionTiles';
 import { resolveSiteSettingsOrDefaults } from '@/lib/site-settings';
+import { publicPrayerWhere } from '@/lib/prayer-moderation';
 
 /**
  * Rendered per request, not prerendered.
@@ -155,7 +156,7 @@ export default async function HomePage() {
       // links to it, so it may not name one no public list shows: a visitor
       // would meet a Demo Campaign here, and follow the link to its page
       // (CONTEXT.md, Demo Campaign; prd-compliance 26).
-      where: { campaign: prayerCampaign },
+      where: { ...publicPrayerWhere(), campaign: prayerCampaign },
       orderBy: { createdAt: 'desc' },
       take: 10,
       include: {

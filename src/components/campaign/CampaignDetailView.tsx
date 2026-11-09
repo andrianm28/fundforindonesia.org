@@ -21,6 +21,7 @@ import { isPublicPhotoUrl } from '@/lib/usage-report-photos';
 import { ShareModal } from '@/components/shared/ShareModal';
 import { CampaignStatusBanner } from './CampaignStatusBanner';
 import { CampaignUpdatesTab } from './CampaignUpdatesTab';
+import { TopDonorsTab } from './TopDonorsTab';
 
 export interface CampaignDetailData {
   id: string;
@@ -225,7 +226,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
   // stays a plain, unwired button, exactly as all three were before this
   // ticket -- adding it is a separate concern this ticket does not touch.
   const [shareOpen, setShareOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'disbursements'>('story');
+  const [activeTab, setActiveTab] = useState<'story' | 'updates' | 'donors' | 'disbursements'>('story');
 
   const suspensionReason = useSuspensionReason(campaign.slug, lifecycleStatus);
   const withdrawal = useWithdrawableSubmission(campaign.slug, lifecycleStatus, setLifecycleStatus);
@@ -526,7 +527,7 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           </div>
         </div>
 
-        {/* Tab navigation: Cerita, Kabar Terbaru, Pencairan Dana. */}
+        {/* Tab navigation: Cerita, Kabar Terbaru, Donatur teratas, Pencairan Dana. */}
         <div className="flex gap-4 border-b border-border mb-4">
           <button
             onClick={() => setActiveTab('story')}
@@ -551,6 +552,18 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
               Kabar Terbaru
             </button>
           )}
+          {isPubliclyViewable(lifecycleStatus) && (
+            <button
+              onClick={() => setActiveTab('donors')}
+              className={
+                activeTab === 'donors'
+                  ? 'pb-2 text-sm font-medium text-primary border-b-2 border-primary'
+                  : 'pb-2 text-sm font-medium text-text-secondary hover:text-text transition-colors'
+              }
+            >
+              Donatur teratas
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('disbursements')}
             className={
@@ -573,6 +586,8 @@ export function CampaignDetailView({ campaign }: CampaignDetailViewProps) {
           </div>
         ) : activeTab === 'updates' ? (
           <CampaignUpdatesTab slug={campaign.slug} />
+        ) : activeTab === 'donors' ? (
+          <TopDonorsTab slug={campaign.slug} />
         ) : (
           <DisbursementsTab slug={campaign.slug} />
         )}

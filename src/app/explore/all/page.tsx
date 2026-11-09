@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useCampaigns } from '@/lib/hooks/useCampaigns';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import type { CampaignCardData } from '@/types/campaign';
+import { CAMPAIGN_SORTS, CAMPAIGN_SORT_LABEL, DEFAULT_CAMPAIGN_SORT, type CampaignSort } from '@/lib/campaign-sort';
 import { KIND_LABEL, KINDS, type CampaignKind } from '@/lib/campaign-kind';
 
 export default function ExploreAllPage() {
@@ -12,7 +13,21 @@ export default function ExploreAllPage() {
   // The catalogue's Kind filter; null lists every Kind.
   const [kind, setKind] = useState<CampaignKind | null>(null);
 
-  const { campaigns, totalPages, isLoading } = useCampaigns({ page, limit: 12, kind: kind ?? undefined });
+  // The catalogue order (PKS 3.7); the default is left off the query.
+  const [sort, setSort] = useState<CampaignSort>(DEFAULT_CAMPAIGN_SORT);
+
+  const { campaigns, totalPages, isLoading } = useCampaigns({
+    page,
+    limit: 12,
+    kind: kind ?? undefined,
+    sort: sort === DEFAULT_CAMPAIGN_SORT ? undefined : sort,
+  });
+
+  const chooseSort = useCallback((next: CampaignSort) => {
+    setSort(next);
+    setPage(1);
+    setAllCampaigns([]);
+  }, []);
 
   const chooseKind = useCallback((next: CampaignKind | null) => {
     setKind(next);
@@ -78,6 +93,23 @@ export default function ExploreAllPage() {
             </button>
           );
         })}
+      </div>
+      <div className="mb-4">
+        <label htmlFor="campaign-sort" className="mr-2 text-sm text-text-secondary">
+          Urutkan
+        </label>
+        <select
+          id="campaign-sort"
+          value={sort}
+          onChange={(e) => chooseSort(e.target.value as CampaignSort)}
+          className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm text-text"
+        >
+          {CAMPAIGN_SORTS.map((option) => (
+            <option key={option} value={option}>
+              {CAMPAIGN_SORT_LABEL[option]}
+            </option>
+          ))}
+        </select>
       </div>
       <CampaignGrid
         campaigns={allCampaigns}

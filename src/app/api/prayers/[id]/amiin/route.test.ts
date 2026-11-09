@@ -86,3 +86,21 @@ describe('POST /api/prayers/[id]/amiin', () => {
     expect(mockPrayerUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/prayers/[id]/amiin on a moderated Prayer (PKS 3.7c)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ['hidden', { id: 'p', hidden: true, deletedAt: null }],
+    ['deleted', { id: 'p', hidden: false, deletedAt: new Date('2026-11-11T00:00:00Z') }],
+  ])('answers 404 for a %s Prayer and counts nothing', async (_label, row) => {
+    mockPrayerFindUnique.mockResolvedValue(row);
+
+    const response = await POST(createRequest('p'), { params: Promise.resolve({ id: 'p' }) });
+
+    expect(response.status).toBe(404);
+    expect(mockPrayerUpdate).not.toHaveBeenCalled();
+  });
+});

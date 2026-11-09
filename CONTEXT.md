@@ -298,7 +298,7 @@ Campaign yang datanya fiktif. Tidak pernah dicantumkan di katalog, di hasil penc
 _Avoid_: Sample, test campaign, contoh (di kode)
 
 **Prayer**:
-Pesan dukungan singkat dari Donor yang tampil di halaman Campaign. Bukan jalur kontribusi.
+Pesan dukungan singkat dari Donor yang tampil di halaman Campaign. Bukan jalur kontribusi. Verifier atau Admin dapat menyembunyikannya, menampilkannya lagi, atau menghapusnya lunak (PKS 3.7c; `/moderasi/doa` dan `/admin/doa`, API `/api/moderasi/prayers`), dengan siapa dan kapan tercatat; Prayer tersembunyi atau terhapus tidak tampil di halaman Campaign, beranda, maupun menerima Aamiin, dan aturannya satu: `publicPrayerWhere` di `src/lib/prayer-moderation.ts`. Daftar moderator tidak memuat Donor-nya, jadi Donor anonim tetap anonim bagi moderator.
 _Avoid_: Doa (di kode), comment
 
 ### Rilis

@@ -45,8 +45,21 @@ export function withHiddenAssignmentCheck(
   return assignmentCheck(requiredAssignment, handler, { status: 404, error: "Not Found" });
 }
 
+/**
+ * withHiddenAssignmentCheck for a route that two independent assignments each
+ * suffice for (prayer moderation, PKS 3.7c: a Verifier or an Admin). Holding
+ * ANY of the listed assignments passes; a signed-in user holding none gets the
+ * 404, signed out gets 401. Still no rank: each assignment is checked on its own.
+ */
+export function withHiddenAnyAssignmentCheck(
+  allowedAssignments: readonly Assignment[],
+  handler: RouteHandler
+): RouteHandler {
+  return assignmentCheck(allowedAssignments, handler, { status: 404, error: "Not Found" });
+}
+
 function assignmentCheck(
-  requiredAssignment: Assignment,
+  requiredAssignment: Assignment | readonly Assignment[],
   handler: RouteHandler,
   refusal: { status: 403 | 404; error: string }
 ): RouteHandler {
@@ -61,7 +74,8 @@ function assignmentCheck(
         );
       }
 
-      if (!hasAssignment(session.user.assignments, requiredAssignment)) {
+      const allowed = Array.isArray(requiredAssignment) ? requiredAssignment : [requiredAssignment];
+      if (!allowed.some((a: Assignment) => hasAssignment(session.user.assignments, a))) {
         return NextResponse.json({ error: refusal.error }, { status: refusal.status });
       }
 

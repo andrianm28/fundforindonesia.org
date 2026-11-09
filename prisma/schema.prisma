@@ -1352,6 +1352,19 @@ model Prayer {
   userId     String?
   createdAt  DateTime @default(now())
 
+  /// Moderation (PKS Pasal 3.7c), by a Verifier or an Admin. A hidden Prayer
+  /// is out of every public list (Campaign page, Prayer Wall, Amiin) but can
+  /// be shown again; a deleted one is a soft delete, never shown again and
+  /// kept as a record. `hiddenAt`/`hiddenById` are set together and cleared
+  /// together when it is shown again; `deletedAt`/`deletedById` are set
+  /// together and never cleared. The ids are plain strings, not relations: the
+  /// record of WHO moderated must outlive the account (no FK, no SetNull).
+  hidden      Boolean   @default(false)
+  hiddenAt    DateTime?
+  hiddenById  String?
+  deletedAt   DateTime?
+  deletedById String?
+
   // Relations
   donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)

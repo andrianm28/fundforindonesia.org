@@ -11,6 +11,7 @@ import { organisationOf, requireDonationOnlyForIndividual, resolveCollectingEnti
 import { refusalResponse } from '@/lib/refusal-response';
 import { categoryExists, UNKNOWN_CATEGORY_MESSAGE } from '@/lib/categories';
 import { campaignLocationSchema } from '@/lib/campaign-location';
+import { parseCampaignSort, rankByCountedProgress } from '@/lib/campaign-sort';
 
 const createCampaignSchema = z.object({
   title: z.string().min(1, "Judul harus diisi").max(200, "Judul maksimal 200 karakter"),
@@ -69,6 +70,13 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
+    // The catalogue order (PKS 3.7); an unknown one is refused rather than
+    // silently falling back, so a typo in a client is seen.
+    const sort = parseCampaignSort(searchParams.get('sort'));
+    if (!sort) {
+      return NextResponse.json({ error: 'Urutan tidak dikenal' }, { status: 400 });
+    }
+
     // Only effectively Active Campaigns are listed (CONTEXT.md, Campaign
     // Status); a `?status=` in the query is ignored.
     const where: Prisma.CampaignWhereInput = await listableCampaignWhere(prisma, new Date());
@@ -96,22 +104,41 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const [campaigns, total] = await Promise.all([
-      prisma.campaign.findMany({
-        where,
-        include: {
-          creator: {
-            select: {
-              name: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.campaign.count({ where }),
-    ]);
+    const withCreator = { creator: { select: { name: true } } };
+    let campaigns;
+    let total: number;
+
+    if (sort === 'hampir-tercapai' || sort === 'terbanyak') {
+      // These two depend on money, and the stored counter still holds beta
+      // (sandbox) Payments, so the order is settled on the counted figure
+      // (counted-payment.ts) over a slim read of every listed Campaign, and
+      // only the requested page is then read in full.
+      const slim = await withCountedCollectedAmount(
+        prisma,
+        await prisma.campaign.findMany({
+          where,
+          select: { id: true, collectedAmount: true, targetAmount: true, createdAt: true },
+        }),
+      );
+      total = slim.length;
+      const pageIds = rankByCountedProgress(slim, sort)
+        .slice(skip, skip + limit)
+        .map((c) => c.id);
+      const rows = await prisma.campaign.findMany({ where: { id: { in: pageIds } }, include: withCreator });
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      campaigns = pageIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+    } else {
+      // terbaru and segera-berakhir are plain column orders; the second reads
+      // the existing (lifecycleStatus, deadline) index, wakaf (no deadline) last.
+      const orderBy: Prisma.CampaignOrderByWithRelationInput | Prisma.CampaignOrderByWithRelationInput[] =
+        sort === 'segera-berakhir'
+          ? [{ deadline: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }]
+          : { createdAt: 'desc' };
+      [campaigns, total] = await Promise.all([
+        prisma.campaign.findMany({ where, include: withCreator, orderBy, skip, take: limit }),
+        prisma.campaign.count({ where }),
+      ]);
+    }
 
     const totalPages = Math.ceil(total / limit);
 

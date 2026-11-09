@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { isPublicPrayer } from '@/lib/prayer-moderation';
 
 export async function POST(
   request: NextRequest,
@@ -11,10 +12,12 @@ export async function POST(
     // 1. Validate prayer exists
     const prayer = await prisma.prayer.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, hidden: true, deletedAt: true },
     });
 
-    if (!prayer) {
+    // A hidden or deleted Prayer is not on any public page, so it does not
+    // exist for a visitor: no Aamiin can be added to it (moderation, PKS 3.7c).
+    if (!prayer || !isPublicPrayer(prayer)) {
       return NextResponse.json(
         { error: 'Doa tidak ditemukan' },
         { status: 404 }

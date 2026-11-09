@@ -733,3 +733,29 @@ describe('CampaignDetailView -- Kabar Terbaru tab', () => {
     expect(screen.queryByRole('button', { name: 'Kabar Terbaru' })).toBeNull();
   });
 });
+
+describe('CampaignDetailView -- Donatur teratas tab (PKS 3.7b)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ donors: [{ rank: 1, donorName: 'Anonim', amount: 750000 }] }),
+      }),
+    ));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('opens the ranked list when the tab is pressed', async () => {
+    render(<CampaignDetailView campaign={mockCampaign} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Donatur teratas' }));
+    expect(await screen.findByText('Anonim')).toBeDefined();
+  });
+
+  it.each(['DRAFT', 'SUBMITTED', 'REJECTED'] as const)('does not offer the tab while %s (not public)', (status) => {
+    render(<CampaignDetailView campaign={{ ...mockCampaign, lifecycleStatus: status }} />);
+    expect(screen.queryByRole('button', { name: 'Donatur teratas' })).toBeNull();
+  });
+});

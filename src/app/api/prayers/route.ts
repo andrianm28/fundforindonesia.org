@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { catalogueDemoWhere } from '@/lib/subject-guard';
 import { Prisma } from '@/generated/prisma/client';
+import { publicPrayerWhere } from '@/lib/prayer-moderation';
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,9 +21,14 @@ export async function GET(request: NextRequest) {
     // plainly what it is. Asked for the whole platform, it names a Campaign
     // to a visitor and links them to it, so it leaves out any Campaign no
     // public list shows (CONTEXT.md, Demo Campaign; prd-compliance 26).
-    const where: Prisma.PrayerWhereInput = campaignSlug
-      ? { campaign: { slug: campaignSlug } }
-      : { campaign: await catalogueDemoWhere(prisma, new Date()) };
+    //
+    // Either way a hidden or deleted Prayer is never listed (moderation, PKS 3.7c).
+    const where: Prisma.PrayerWhereInput = {
+      ...publicPrayerWhere(),
+      ...(campaignSlug
+        ? { campaign: { slug: campaignSlug } }
+        : { campaign: await catalogueDemoWhere(prisma, new Date()) }),
+    };
 
     const [prayers, total] = await Promise.all([
       prisma.prayer.findMany({

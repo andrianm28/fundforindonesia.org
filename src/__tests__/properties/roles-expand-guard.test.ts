@@ -182,6 +182,16 @@ import { join } from "node:path";
  * `src/lib/failed-notifications.ts` joins as a non-route: it reads the
  * ADMIN assignment only to learn WHO to email when notifications pile up
  * (prisma.userAssignment), and decides no one's access.
+ *
+ * NOTE (PKS pemenuhan 10): `GET /api/moderasi/prayers` and
+ * `PATCH /api/moderasi/prayers/[id]` (Prayer moderation, Pasal 3.7c) are for a
+ * Verifier OR an Admin, each on its own assignment, never a rank. They go
+ * through `prayerModerationRoute` (src/lib/prayer-moderation-route.ts), which
+ * is `withHiddenAnyAssignmentCheck`: 401 signed out, the literal 404 for anyone
+ * holding neither. That one file names both assignments, so it joins the list
+ * below as a non-route; the two routes and the two pages
+ * (/moderasi/doa, /admin/doa, behind their own layouts and the shared
+ * PrayerModerationScreen) only ask it, and name no assignment themselves.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -259,6 +269,11 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   // ADMIN to know whom to email about a pile-up; it grants and refuses nothing.
   // Its Admin routes have already required ADMIN.
   "src/lib/failed-notifications.ts",
+  // Not a route: the Prayer moderators (PKS pemenuhan 10): a Verifier OR an
+  // Admin, which no single-assignment wrapper can express. It wraps the two
+  // /api/moderasi/prayers routes in withHiddenAnyAssignmentCheck (404 for
+  // anyone with neither) and answers the same question for the screen.
+  "src/lib/prayer-moderation-route.ts",
   // Not a route: the Capacity judgement, which the lifecycle module, the
   // money operations and Trip moderation ask, because "owner or Admin" and
   // "never Admin on your own Campaign or Trip" are not single-assignment
@@ -437,7 +452,7 @@ describe("roles expand scope", () => {
   it("every Admin and Moderasi API route answers a missing assignment with 404 (ticket 90)", () => {
     // Directly, or through the register's and checklist editor's wrappers,
     // which are themselves withHiddenAssignmentCheck.
-    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(/;
+    const HIDDEN = /\bwithHiddenAssignmentCheck\(|\bpartnerOrganisationRoute\(|\bchecklistRoute\(|\bprayerModerationRoute\(/;
     const routes = [...walk("src/app/api/admin"), ...walk("src/app/api/moderasi")].filter((file) =>
       file.endsWith("/route.ts")
     );
@@ -461,6 +476,12 @@ describe("roles expand scope", () => {
     for (const wrapper of ["src/lib/partner-organisation-route.ts", "src/lib/verification-checklist-route.ts"]) {
       expect(readFileSync(wrapper, "utf8")).toMatch(/\bwithHiddenAssignmentCheck\(/);
     }
+    // Prayer moderation accepts either of two assignments, so its wrapper is
+    // the "any of" variant, with both named.
+    const prayers = readFileSync("src/lib/prayer-moderation-route.ts", "utf8");
+    expect(prayers).toMatch(/\bwithHiddenAnyAssignmentCheck\(/);
+    expect(prayers).toContain("Assignment.VERIFIER");
+    expect(prayers).toContain("Assignment.ADMIN");
   });
 
   it("the assignment model references ADR 0005", () => {

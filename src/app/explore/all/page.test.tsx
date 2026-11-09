@@ -61,3 +61,39 @@ describe('ExploreAllPage Kind filter', () => {
     expect(screen.getByRole('button', { name: 'Hibah' }).getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+// PKS Pasal 3.7: the catalogue can be ordered four ways.
+describe('ExploreAllPage order picker', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ campaigns: [], total: 0, page: 1, limit: 12 }),
+    }));
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('offers the four orders, starts on Terbaru without a sort parameter, and asks for the chosen order', async () => {
+    renderPage();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    expect(mockFetch.mock.calls[0][0]).not.toContain('sort=');
+
+    const picker = screen.getByLabelText('Urutkan') as HTMLSelectElement;
+    expect(Array.from(picker.options).map((o) => o.text)).toEqual([
+      'Terbaru',
+      'Hampir tercapai',
+      'Paling banyak terkumpul',
+      'Segera berakhir',
+    ]);
+
+    fireEvent.change(picker, { target: { value: 'segera-berakhir' } });
+    await waitFor(() =>
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('sort=segera-berakhir'))).toBe(true),
+    );
+  });
+});

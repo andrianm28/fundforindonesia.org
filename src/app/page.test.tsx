@@ -121,7 +121,7 @@ describe('the home page and a Demo Campaign', () => {
     await HomePage();
 
     const { where } = holder.prayerFindMany.mock.calls[0][0];
-    expect(where).toEqual({ campaign: { isDemo: false } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: { isDemo: false } });
   });
 });
 
@@ -145,7 +145,7 @@ describe('the home page with SHOW_DEMO_CAMPAIGNS on (prd-compliance 56)', () => 
     expect(campaignsPassedTo(page, UrgentCampaigns)[0].sort()).toEqual(['active', 'demo-urgent']);
 
     const { where } = holder.prayerFindMany.mock.calls.at(-1)![0];
-    expect(where).toEqual({ campaign: {} });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: {} });
   });
 });
 
@@ -176,7 +176,7 @@ describe('the home page with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
     expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['demo-urgent']]);
     expect(campaignsPassedTo(page, CampaignGrid)).toEqual([['demo-urgent'], ['demo-urgent']]);
     const { where } = holder.prayerFindMany.mock.calls.at(-1)![0];
-    expect(where).toEqual({ campaign: {} });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: {} });
   });
 
   it('shows no Demo Campaign in any list, and the Prayer Wall names none, once a real Campaign is Active', async () => {
@@ -193,7 +193,7 @@ describe('the home page with SHOW_DEMO_CAMPAIGNS=auto (rilis-1 91)', () => {
     expect(campaignsPassedTo(page, UrgentCampaigns)).toEqual([['real']]);
     expect(campaignsPassedTo(page, CampaignGrid)).toEqual([['real'], ['real']]);
     const { where } = holder.prayerFindMany.mock.calls.at(-1)![0];
-    expect(where).toEqual({ campaign: { isDemo: false } });
+    expect(where).toEqual({ hidden: false, deletedAt: null, campaign: { isDemo: false } });
   });
 
   it('decides once for the whole page, with one bounded read of the Campaigns', async () => {
