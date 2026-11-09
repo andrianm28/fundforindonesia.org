@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { publicUrl } from './public-url';
+import { isCanonicalSite, publicUrl } from './public-url';
 
 /**
  * Every absolute link to the public site (SEO metadata, the sitemap, the
@@ -33,5 +33,30 @@ describe('publicUrl', () => {
     vi.stubEnv('NEXTAUTH_URL', 'http://localhost:3000');
 
     expect(publicUrl()).toBe('https://fundforindonesia.org');
+  });
+});
+
+/**
+ * Staging (stg.fundforindonesia.org) and a thread's local dev server are built
+ * with their own NEXT_PUBLIC_BASE_URL. Only the canonical domain may be
+ * indexed; everything else asks crawlers to stay out (robots.ts, layout.tsx).
+ */
+describe('isCanonicalSite', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('is true for the canonical domain, set or by fallback, with or without a trailing slash', () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', '');
+    expect(isCanonicalSite()).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://fundforindonesia.org/');
+    expect(isCanonicalSite()).toBe(true);
+  });
+
+  it('is false for staging, localhost or any other host', () => {
+    for (const url of ['https://stg.fundforindonesia.org', 'http://localhost:3000', 'https://fundforindonesia.org.evil.test']) {
+      vi.stubEnv('NEXT_PUBLIC_BASE_URL', url);
+      expect(isCanonicalSite(), url).toBe(false);
+    }
   });
 });

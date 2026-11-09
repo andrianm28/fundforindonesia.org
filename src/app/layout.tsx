@@ -6,7 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ConditionalFooter } from "@/components/layout/ConditionalFooter";
 import { BetaBanner } from "@/components/layout/BetaBanner";
 import { BetaSandboxProvider } from "@/components/layout/BetaSandboxContext";
-import { publicUrl } from "@/lib/public-url";
+import { isCanonicalSite, publicUrl } from "@/lib/public-url";
 import { betaSandboxForThisRequest } from "@/lib/beta-sandbox-request";
 import { prisma } from "@/lib/prisma";
 import { resolveSiteSettingsOrDefaults } from "@/lib/site-settings";
@@ -50,11 +50,14 @@ export const metadata: Metadata = {
   title: "Fund for Indonesia - Platform Donasi dan Penggalangan Dana Online",
   description:
     "Fund for Indonesia adalah platform teknologi untuk donasi dan penggalangan dana online di Indonesia.",
+  // Only a build for a non-canonical address (staging, local dev) carries a
+  // robots entry; the canonical site stays indexed. See isCanonicalSite().
+  ...(isCanonicalSite() ? {} : { robots: { index: false, follow: false } }),
 };
 
 // The public beta (ticket rilis-1-benda/92) is announced on every page, read
 // per request on the server and handed down; the metadata above carries no
-// robots entry on purpose, because the beta stays indexed.
+// robots entry on purpose on the canonical site, because the beta stays indexed.
 export default async function RootLayout({
   children,
 }: Readonly<{

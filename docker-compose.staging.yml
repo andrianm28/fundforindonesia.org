@@ -1,0 +1,160 @@
+# Staging compose: stg.fundforindonesia.org, on the same host as production
+# but a separate stack in every way that holds data or secrets. See
+# docs/runbooks/staging.md.
+#
+#   - its own project name, so no command on it can touch fundforindonesia-prod;
+#   - its own database container and volumes (ffi_stg_*), never the kibi-clone
+#     production volumes;
+#   - its own .env (in the staging deploy directory, never production's): its
+#     own NEXTAUTH_SECRET, field keys and jobs secret, and Sumopod SANDBOX
+#     credentials only;
+#   - BETA_SANDBOX=true by default, so the money path accepts only the Sumopod
+#     sandbox and the boot check refuses a live Sumopod base url;
+#   - its own loopback ports (8094 app, 18094 db), behind nginx.
+#
+# The host never builds. ops/deploy-staging.sh pulls cd.yml's staging app image
+# (:<sha>-staging, built with staging's own NEXT_PUBLIC_BASE_URL and
+# NEXTAUTH_URL, which makes the build noindex) and that commit's migrate image,
+# and runs them by digest:
+#
+#   APP_DIGEST=sha256:... MIGRATE_DIGEST=sha256:... \
+#     docker compose -f docker-compose.staging.yml --profile migrate run --rm migrate
+#   APP_DIGEST=sha256:... MIGRATE_DIGEST=sha256:... \
+#     docker compose -f docker-compose.staging.yml up -d app
+#
+# Resource caps are lower than production's: staging shares the 4 vCPU host
+# and must never starve production.
+#
+# Guarded by src/__tests__/docker-compose-staging.test.ts.
+
+name: fundforindonesia-stg
+
+services:
+  db:
+    image: postgres:16.15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fundindo
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      POSTGRES_DB: fund_indonesia_stg
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:18094:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fundindo -d fund_indonesia_stg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  app:
+    image: ghcr.io/andrianm28/fundforindonesia.org@${APP_DIGEST:?set APP_DIGEST}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8094:3000"
+    environment:
+      DATABASE_URL: "postgresql://fundindo:${DB_PASSWORD}@db:5432/fund_indonesia_stg?schema=public"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?set NEXTAUTH_SECRET in .env}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:?set NEXTAUTH_URL in .env}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      SHOW_DEMO_CAMPAIGNS: ${SHOW_DEMO_CAMPAIGNS:-true}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      MOCK_MIDTRANS_SERVER_KEY: ${MOCK_MIDTRANS_SERVER_KEY:-}
+      ALLOW_MOCK_PAYMENT_PROVIDER: ${ALLOW_MOCK_PAYMENT_PROVIDER:-}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-sumopod}
+      SUMOPOD_API_KEY: ${SUMOPOD_API_KEY:-}
+      SUMOPOD_WEBHOOK_SECRET: ${SUMOPOD_WEBHOOK_SECRET:-}
+      SUMOPOD_BASE_URL: ${SUMOPOD_BASE_URL:-}
+      # Defaults to "true", unlike production: staging is always the sandbox.
+      # The boot check then refuses any SUMOPOD_BASE_URL but the sandbox.
+      BETA_SANDBOX: ${BETA_SANDBOX:-true}
+      WAKAF_HIBAH_OPEN: ${WAKAF_HIBAH_OPEN:-}
+      PAYMENT_LINK_ALLOWED_HOSTS: ${PAYMENT_LINK_ALLOWED_HOSTS:-}
+      RATE_LIMIT_SECRET: ${RATE_LIMIT_SECRET:-}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
+      FIELD_ENCRYPTION_KEY_ID: ${FIELD_ENCRYPTION_KEY_ID:-}
+      FIELD_HMAC_KEY: ${FIELD_HMAC_KEY:-}
+      FIELD_HMAC_KEY_ID: ${FIELD_HMAC_KEY_ID:-}
+      FIELD_ENCRYPTION_PREVIOUS_KEYS: ${FIELD_ENCRYPTION_PREVIOUS_KEYS:-}
+      FIELD_HMAC_PREVIOUS_KEYS: ${FIELD_HMAC_PREVIOUS_KEYS:-}
+      JOBS_SECRET: ${JOBS_SECRET:-}
+      PRIVATE_DOCUMENT_DIR: /app/private-documents
+      # Unset, mail is logged as mail_not_configured and never sent. Keep it
+      # that way unless staging gets its own sender: staging must not mail
+      # real people from production's address.
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      PARTNERSHIP_TEAM_EMAIL: ${PARTNERSHIP_TEAM_EMAIL:-}
+      DONOR_REFUND_WINDOW_HOURS: ${DONOR_REFUND_WINDOW_HOURS:-}
+      DONOR_REFUND_MAX_OPEN_PER_DONOR: ${DONOR_REFUND_MAX_OPEN_PER_DONOR:-}
+      DONOR_REFUND_MAX_AMOUNT_DONATION: ${DONOR_REFUND_MAX_AMOUNT_DONATION:-}
+      DONOR_REFUND_MAX_AMOUNT_ZAKAT: ${DONOR_REFUND_MAX_AMOUNT_ZAKAT:-}
+      DONOR_REFUND_MAX_AMOUNT_WAKAF: ${DONOR_REFUND_MAX_AMOUNT_WAKAF:-}
+      DONOR_REFUND_MAX_AMOUNT_HIBAH: ${DONOR_REFUND_MAX_AMOUNT_HIBAH:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/public/uploads
+      - private_documents:/app/private-documents
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    mem_limit: 768m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  migrate:
+    image: ghcr.io/andrianm28/fundforindonesia.org@${MIGRATE_DIGEST:?set MIGRATE_DIGEST}
+    restart: "no"
+    environment:
+      DATABASE_URL: "postgresql://fundindo:${DB_PASSWORD}@db:5432/fund_indonesia_stg?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Staging's own volumes, created once on the host (docs/runbooks/staging.md).
+# External, so `down -v` can never delete them, and named ffi_stg_* so they can
+# never be mistaken for production's kibi-clone_* or ffi_private_documents.
+volumes:
+  postgres_data:
+    external: true
+    name: ffi_stg_postgres_data
+  uploads:
+    external: true
+    name: ffi_stg_uploads
+  private_documents:
+    external: true
+    name: ffi_stg_private_documents

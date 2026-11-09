@@ -101,6 +101,10 @@ service postgresql start
 DATABASE_URL='postgresql://ffi:ffi@localhost:5432/ffi?schema=public' npx prisma migrate deploy
 ```
 
+To run the whole app against that database (migrate, demo seed, `next dev`
+on :3000) and click through a change: `scripts/dev-thread.sh`, see
+`dev-thread.md`.
+
 ## Check in the first session
 
 - `node -v` prints v24.

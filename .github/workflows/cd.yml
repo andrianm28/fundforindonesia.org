@@ -362,6 +362,36 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=migrate
 
+      # Staging (stg.fundforindonesia.org) runs the same commit as a separate
+      # app image, because NEXT_PUBLIC_* and the site URLs are inlined at build
+      # time: the production image would link to, and sign in on, production.
+      # Same Dockerfile target and the same buildx cache, so only the layers
+      # that inline those values differ from the image scanned above. It reuses
+      # this commit's migrate image (no build args there). The host's staging
+      # timer (ops/deploy-staging.sh) pulls :staging, which only moves to
+      # main's head, like :latest. Its values are public, so variables
+      # (STAGING_*), each defaulting to staging's own address; staging is a
+      # sandbox, so donations and Volunteer Trip are on by default.
+      - name: Push the staging app image
+        id: push-staging
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runner
+          push: true
+          provenance: mode=max,version=v1
+          tags: |
+            ${{ env.IMAGE }}:${{ env.SHA }}-staging
+            ${{ steps.gate.outputs.latest == 'true' && format('{0}:staging', env.IMAGE) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_BASE_URL=${{ vars.STAGING_NEXT_PUBLIC_BASE_URL || 'https://stg.fundforindonesia.org' }}
+            NEXTAUTH_URL=${{ vars.STAGING_NEXTAUTH_URL || 'https://stg.fundforindonesia.org' }}
+            NEXT_PUBLIC_DONATIONS_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_DONATIONS_ENABLED || 'true' }}
+            NEXT_PUBLIC_VOLUNTEER_ENABLED=${{ vars.STAGING_NEXT_PUBLIC_VOLUNTEER_ENABLED || 'true' }}
+          cache-from: type=gha,scope=app
+
       # GitHub artifact attestations need a public repository (or GitHub
       # Enterprise Cloud); on a private user-owned repository the API refuses
       # them. So they run once the repository is public, and until then the
@@ -389,6 +419,7 @@ jobs:
         env:
           APP_DIGEST: ${{ steps.push-app.outputs.digest }}
           MIGRATE_DIGEST: ${{ steps.push-migrate.outputs.digest }}
+          STAGING_DIGEST: ${{ steps.push-staging.outputs.digest }}
         run: |
           {
             echo "### Pushed ${IMAGE}"
@@ -396,4 +427,5 @@ jobs:
             echo "|---|---|---|"
             echo "| app | \`${SHA}\`, \`latest\` | \`${APP_DIGEST}\` |"
             echo "| migrate | \`${SHA}-migrate\` | \`${MIGRATE_DIGEST}\` |"
+            echo "| staging app | \`${SHA}-staging\` | \`${STAGING_DIGEST}\` |"
           } >> "$GITHUB_STEP_SUMMARY"

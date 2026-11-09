@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { publicUrl } from '@/lib/public-url';
+import { isCanonicalSite, publicUrl } from '@/lib/public-url';
 
 /**
  * Paths a crawler has no business on: back-office, API, signed-in pages, and
@@ -26,6 +26,9 @@ const PRIVATE_PATHS = [
 ];
 
 export default function robots(): MetadataRoute.Robots {
+  // Staging and local dev builds: nothing is crawlable, and no sitemap is
+  // advertised that would point crawlers at test content.
+  if (!isCanonicalSite()) return { rules: { userAgent: '*', disallow: '/' } };
   return {
     rules: { userAgent: '*', allow: '/', disallow: PRIVATE_PATHS },
     sitemap: publicUrl('/sitemap.xml'),

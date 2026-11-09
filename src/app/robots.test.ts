@@ -50,4 +50,11 @@ describe('robots.txt', () => {
     expect(r.sitemap).toBe('https://fundforindonesia.org/sitemap.xml');
     expect(r.host).toBe('https://fundforindonesia.org');
   });
+
+  it('shuts every crawler out of a non-canonical build such as staging', () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://stg.fundforindonesia.org');
+    const r = robots();
+    expect(r.rules).toEqual({ userAgent: '*', disallow: '/' });
+    expect(r.sitemap).toBeUndefined();
+  });
 });

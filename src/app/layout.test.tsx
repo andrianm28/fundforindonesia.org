@@ -73,4 +73,11 @@ describe('RootLayout beta banner', () => {
   it('keeps the site indexable: the beta adds no robots directive', () => {
     expect(metadata.robots).toBeUndefined();
   });
+
+  it('marks a non-canonical build (staging, local dev) noindex, nofollow', async () => {
+    vi.resetModules();
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://stg.fundforindonesia.org');
+    const { metadata: staging } = await import('./layout');
+    expect(staging.robots).toEqual({ index: false, follow: false });
+  });
 });
