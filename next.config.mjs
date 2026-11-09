@@ -28,6 +28,10 @@ const TOKEN_PAGE_HEADERS = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // `next dev` otherwise appends a generated block to AGENTS.md/CLAUDE.md on
+  // every start (scripts/dev-thread.sh runs it in agent threads). Those files
+  // are the owner's curated rules; keep them hand-written.
+  agentRules: false,
   // No X-Powered-By: Next.js header; it only tells a scanner what the stack is.
   poweredByHeader: false,
   typescript: {
