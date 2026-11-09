@@ -11,7 +11,7 @@
 # Environment) checks everything itself before anything reaches the host
 # (ci/deploy-gate.sh):
 #   - the SHA is a full commit on main;
-#   - CI passed on it (test, build, migrations, ratchet);
+#   - CI passed on it (test, build, migrations, ratchet, e2e);
 #   - cd.yml pushed its app and migrate images to GHCR, and their provenance
 #     says so (this commit, this repository, the right Dockerfile target, a
 #     cd.yml run on main).

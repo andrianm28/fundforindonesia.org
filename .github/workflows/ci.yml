@@ -214,8 +214,8 @@ jobs:
     # not-found view, the QRIS donation path through Receipt), driven in a
     # real browser against the production bundle. Browser-side answers that
     # need no login are stubbed at the network edge (see the specs); the
-    # deploy gate only requires test, build, migrations and ratchet green,
-    # so this job gates deploys through the run's overall success instead.
+    # deploy gate (ci/deploy-gate.sh) requires this job green too, next to
+    # test, build, migrations and ratchet.
     name: e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 30
