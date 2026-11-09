@@ -41,6 +41,40 @@ afterEach(() => {
   swr.mutate.mockReset();
 });
 
+describe('Kampanye Saya income summary (PKS 3.9)', () => {
+  it('shows the settled total and the amount per Campaign', () => {
+    swr.data = {
+      campaigns: [campaign('running', 'ACTIVE')],
+      income: {
+        total: 1_250_000,
+        perCampaign: [
+          { campaignId: 'running', slug: 'running', title: 'Campaign running', totalAmount: 1_250_000, donationCount: 3 },
+        ],
+      },
+      total: 1,
+      page: 1,
+      totalPages: 1,
+    };
+
+    render(<MyCampaignsPage />);
+
+    const summary = screen.getByTestId('income-summary');
+    expect(within(summary).getByTestId('income-total').textContent).toMatch(/1\.250\.000/);
+    const row = within(summary).getByTestId('income-running');
+    expect(row.textContent).toMatch(/Campaign running/);
+    expect(row.textContent).toMatch(/1\.250\.000/);
+    expect(row.textContent).toMatch(/3 donasi/);
+  });
+
+  it('shows no summary when the response carries none', () => {
+    swr.data = { campaigns: [campaign('running', 'ACTIVE')], total: 1, page: 1, totalPages: 1 };
+
+    render(<MyCampaignsPage />);
+
+    expect(screen.queryByTestId('income-summary')).toBeNull();
+  });
+});
+
 describe('Kampanye Saya', () => {
   it('points a user with no Campaign straight to creating one (FFI-04)', () => {
     swr.data = { campaigns: [], total: 0, page: 1, totalPages: 0 };

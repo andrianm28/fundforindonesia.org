@@ -1,0 +1,54 @@
+import { prisma } from '@/lib/prisma';
+import { receiptNeedsBetaNotice } from '@/lib/money/counted-payment';
+import { buildReceiptPdf } from '@/lib/receipt-pdf';
+import { formatRupiah } from '@/lib/utils/currency';
+import { formatIndonesianDate } from '@/lib/utils/date';
+
+/**
+ * The Receipt as a PDF download (PKS 3.8). Gated exactly like the print page
+ * it is offered from: by the token alone (a Guest Donor has no session), and
+ * it shows what that page shows, so an anonymised Donor stays anonymous.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+
+  const receipt = await prisma.receipt.findUnique({
+    where: { token },
+    include: {
+      donation: {
+        include: {
+          campaign: { include: { collectingEntity: true } },
+          donor: { select: { id: true, name: true } },
+          payments: { select: { sandbox: true } },
+        },
+      },
+    },
+  });
+
+  if (!receipt) {
+    return Response.json({ error: 'Bukti donasi tidak ditemukan' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
+  }
+
+  const { donation } = receipt;
+  const donorName = donation.anonymisedAt
+    ? 'Donor anonim'
+    : (donation.donor?.name ?? donation.guestName ?? 'Donor');
+
+  const pdf = buildReceiptPdf({
+    campaignTitle: donation.campaign.title,
+    collectingEntityName: donation.campaign.collectingEntity?.name ?? '',
+    amountLabel: formatRupiah(donation.amount),
+    dateLabel: formatIndonesianDate(receipt.sentAt ?? receipt.createdAt),
+    donorName,
+    betaSandbox: receiptNeedsBetaNotice(donation.payments),
+  });
+
+  return new Response(new Uint8Array(pdf), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="bukti-donasi-${receipt.token.replace(/[^A-Za-z0-9_-]/g, '')}.pdf"`,
+      'Cache-Control': 'private, no-store',
+    },
+  });
+}

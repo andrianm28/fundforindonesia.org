@@ -109,6 +109,12 @@ export function ReceiptView(props: ReceiptViewProps) {
           >
             Cetak
           </button>
+          <a
+            href={`/api/receipts/${props.token}/pdf`}
+            className="flex-1 border border-[#0073E6] text-[#0073E6] text-sm font-medium px-4 py-2.5 rounded-lg text-center hover:bg-[#E3F2FD] transition-colors"
+          >
+            Unduh bukti (PDF)
+          </a>
           {!anonymised && (
             <button
               type="button"

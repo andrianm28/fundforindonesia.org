@@ -27,8 +27,15 @@ interface Campaign {
   createdAt: string;
 }
 
+interface IncomeSummary {
+  total: number;
+  perCampaign: Array<{ campaignId: string; slug: string; title: string; totalAmount: number; donationCount: number }>;
+}
+
 interface CampaignsResponse {
   campaigns: Campaign[];
+  /** Settled Donations only, over all of the Fundraiser's Campaigns (PKS 3.9). */
+  income?: IncomeSummary;
   total: number;
   page: number;
   totalPages: number;
@@ -125,6 +132,8 @@ export default function MyCampaignsPage() {
           <h1 className="text-white text-lg font-semibold">Galang Dana Saya</h1>
         </div>
       </div>
+
+      {data?.income && <IncomeSummaryCard income={data.income} />}
 
       {/* Campaign List */}
       <div className="px-4 mt-4 space-y-3">
@@ -349,6 +358,28 @@ export default function MyCampaignsPage() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Money in, per Campaign and in all, from settled Donations only (PKS 3.9). */
+function IncomeSummaryCard({ income }: { income: IncomeSummary }) {
+  return (
+    <div data-testid="income-summary" className="mx-4 mt-4 bg-white rounded-xl shadow-xs p-4">
+      <p className="text-text-secondary text-xs">Total donasi masuk</p>
+      <p data-testid="income-total" className="text-[#0073E6] text-lg font-bold">
+        {formatRupiah(income.total)}
+      </p>
+      <ul className="mt-3 space-y-1.5 border-t border-border pt-3">
+        {income.perCampaign.map((c) => (
+          <li key={c.campaignId} data-testid={`income-${c.slug}`} className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-text line-clamp-1 min-w-0">{c.title}</span>
+            <span className="shrink-0 text-text font-medium">
+              {formatRupiah(c.totalAmount)} <span className="text-text-secondary font-normal">({c.donationCount} donasi)</span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

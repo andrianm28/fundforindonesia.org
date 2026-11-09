@@ -169,3 +169,11 @@ describe('ReceiptView, anonymisation (ticket 36)', () => {
     expect(screen.getByRole('link', { name: /Pengaturan/ }).getAttribute('href')).toBe('/akun/pengaturan');
   });
 });
+
+describe('ReceiptView PDF download (PKS 3.8)', () => {
+  it('links to the PDF of this Receipt', () => {
+    render(<ReceiptView {...baseProps()} />);
+
+    expect(screen.getByRole('link', { name: 'Unduh bukti (PDF)' }).getAttribute('href')).toBe('/api/receipts/tok-1/pdf');
+  });
+});
