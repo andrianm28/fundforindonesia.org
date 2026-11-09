@@ -201,6 +201,7 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/provider-withdrawals/route.ts",
   "src/app/api/admin/reconcile/route.ts",
   "src/app/api/admin/scrutiny/route.ts",
+  "src/app/api/admin/operations/route.ts",
   "src/app/api/admin/site-settings/route.ts",
   "src/app/api/admin/users/[id]/assignments/route.ts",
   "src/app/api/admin/users/route.ts",
@@ -426,7 +427,11 @@ describe("roles expand scope", () => {
     // escrow-hold (ticket 90 itself) and site-settings (#249) answer 404 to
     // the signed-out as well, by their own check, so not even the 401 reveals
     // the setting.
-    const OWN_404 = ["src/app/api/admin/escrow-hold/route.ts", "src/app/api/admin/site-settings/route.ts"];
+    const OWN_404 = [
+      "src/app/api/admin/escrow-hold/route.ts",
+      "src/app/api/admin/operations/route.ts",
+      "src/app/api/admin/site-settings/route.ts",
+    ];
     const offenders = routes
       .filter((file) => !OWN_404.includes(file))
       .filter((file) => !HIDDEN.test(readFileSync(file, "utf8")));
