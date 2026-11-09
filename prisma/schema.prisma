@@ -64,6 +64,7 @@ model User {
   registrations                    Registration[]
   donations                        Donation[]
   emailVerificationTokens          EmailVerificationToken[]
+  loginCodes                       LoginCode[]
   prayers                          Prayer[]
   notifications                    Notification[]
   autoDonations                    AutoDonation[]
@@ -1219,6 +1220,26 @@ model EmailVerificationToken {
   userId    String
   tokenHash String    @unique
   emailHmac String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+/// A one-time sign-in code mailed to an account's address (login OTP,
+/// src/lib/login-code.ts). Only a keyed HMAC of the code is stored, so a dump
+/// of this table cannot be replayed or brute-forced offline. One-use, short
+/// lived, and dead after too many wrong guesses; `emailHmac` binds it to the
+/// address it was mailed to, so a code stops working if the address changes.
+model LoginCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  emailHmac String
+  attempts  Int       @default(0)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { KABAR_FUNDRAISER_EMAIL, KABAR_SLUG, STRANGER_EMAIL, operatorPassword } from './fixtures';
+import { KABAR_FUNDRAISER_EMAIL, KABAR_SLUG, STRANGER_EMAIL } from './fixtures';
+import { signInByCode } from './operator-sign-in';
 
 /**
  * Ticket 70: the Fundraiser writes a Kabar Terbaru from their screen, then it
@@ -8,11 +9,7 @@ import { KABAR_FUNDRAISER_EMAIL, KABAR_SLUG, STRANGER_EMAIL, operatorPassword } 
  */
 
 async function signInAs(page: Page, email: string) {
-  const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
-  const signedIn = await page.request.post('/api/auth/callback/credentials', {
-    form: { csrfToken, email, password: operatorPassword(), json: 'true' },
-  });
-  expect(signedIn.ok()).toBe(true);
+  await signInByCode(page, email);
 }
 
 test('a Fundraiser writes an update and the public reads it as text', async ({ browser }, testInfo) => {

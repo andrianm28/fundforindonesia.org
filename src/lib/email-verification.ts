@@ -11,10 +11,9 @@ import { publicUrl } from '@/lib/public-url';
  * (prd-compliance 23). Only then may it claim a Guest Donor's history under
  * that address (src/lib/guest-donation-claim.ts).
  *
- * This link is not the only proof: a successful password reset also sets
- * `emailVerifiedAt` when it is empty, because the reset link is mailed to the
- * same address and bound to the same `emailHmac`
- * (src/app/api/auth/password-reset/confirm/route.ts; ADR 0020, amendment).
+ * This link is not the only proof: a sign-in by mailed code also proves the
+ * address (src/lib/login-code.ts; ADR 0026). The password reset that once did
+ * the same is gone (owner, 9 Nov 2026).
  *
  * Why it is shaped this way:
  *

@@ -1,12 +1,12 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import {
-  CSR_ALPHA_DOMAIN,
   CSR_ALPHA_EMAIL,
   CSR_ALPHA_NEEDS,
   CSR_BETA_EMAIL,
   CSR_BETA_NEEDS,
-  operatorPassword,
+  CSR_ALPHA_UNVERIFIED_EMAIL,
 } from './fixtures';
+import { markEmailUnverified, signInByCode } from './operator-sign-in';
 
 /**
  * Tim CSR accounts (ticket E9/01, tahap 2): a person registers and joins the
@@ -15,24 +15,16 @@ import {
  * Real browser, production bundle, the real routes.
  */
 
-async function signedIn(browser: Browser, email: string, password: string): Promise<{ page: Page; close: () => Promise<void> }> {
+async function signedIn(browser: Browser, email: string): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  const { csrfToken } = await (await page.request.get('/api/auth/csrf')).json();
-  const response = await page.request.post('/api/auth/callback/credentials', {
-    form: { csrfToken, email, password, json: 'true' },
-  });
-  expect(response.ok()).toBe(true);
+  await signInByCode(page, email);
   return { page, close: () => context.close() };
 }
 
-test('a person registers on a company domain but cannot join or see anything until the email is verified', async ({ browser, request }, testInfo) => {
-  const email = `orang-${testInfo.project.name.toLowerCase()}-${Date.now()}@${CSR_ALPHA_DOMAIN}`;
-  const password = operatorPassword();
-  const registered = await request.post('/api/auth/register', { data: { name: 'Orang Baru', email, password } });
-  expect(registered.status()).toBe(201);
-
-  const { page, close } = await signedIn(browser, email, password);
+test('a person on a company domain cannot join or see anything until the email is verified', async ({ browser }) => {
+  const { page, close } = await signedIn(browser, CSR_ALPHA_UNVERIFIED_EMAIL);
+  await markEmailUnverified(CSR_ALPHA_UNVERIFIED_EMAIL);
   await page.goto('/akun/tim-csr/gabung');
   const joined = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/csr/membership',
@@ -50,9 +42,7 @@ test('a person registers on a company domain but cannot join or see anything unt
 });
 
 test('a verified member sees only their own company\'s Inquiries', async ({ browser }) => {
-  const password = operatorPassword();
-
-  const alpha = await signedIn(browser, CSR_ALPHA_EMAIL, password);
+  const alpha = await signedIn(browser, CSR_ALPHA_EMAIL);
   await alpha.page.goto('/akun/tim-csr');
   const alphaMain = alpha.page.getByRole('main');
   await expect(alphaMain.getByTestId('csr-inquiry')).toHaveCount(1);
@@ -64,7 +54,7 @@ test('a verified member sees only their own company\'s Inquiries', async ({ brow
   expect((await alpha.page.request.get('/api/csr/impact-report')).status()).toBe(200);
   await alpha.close();
 
-  const beta = await signedIn(browser, CSR_BETA_EMAIL, password);
+  const beta = await signedIn(browser, CSR_BETA_EMAIL);
   const betaApi = await (await beta.page.request.get('/api/csr/inquiries')).text();
   expect(betaApi).toContain(CSR_BETA_NEEDS);
   expect(betaApi).not.toContain(CSR_ALPHA_NEEDS);

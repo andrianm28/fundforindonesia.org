@@ -14,7 +14,7 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-// Mock the hashing wrapper (real cost/compat is covered in password-hash.test.ts)
+// Registration must never hash a password any more; mocked to prove it is not called.
 vi.mock('@/lib/password-hash', () => ({
   hashPassword: vi.fn().mockResolvedValue('$2a$12$hashedpassword'),
 }));
@@ -51,28 +51,6 @@ describe('POST /api/auth/register', () => {
 
     expect(res.status).toBe(400);
     expect(body.errors.email).toBe('Format email tidak valid');
-  });
-
-  it('should return 400 when password is too short', async () => {
-    const req = createRequest({ name: 'Test', email: 'test@example.com', password: '1234' });
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.errors.password).toBe('Password minimal 8 karakter');
-  });
-
-  it('rejects a password over 72 bytes (bcrypt would ignore the tail) and accepts exactly 72', async () => {
-    const over = await POST(createRequest({ name: 'Test', email: 'test@example.com', password: 'a'.repeat(73) }));
-    expect(over.status).toBe(400);
-    expect((await over.json()).errors.password).toBe('Password maksimal 72 byte');
-
-    // 37 two-byte characters = 74 bytes but only 37 characters: bytes, not length, are limited.
-    const multibyte = await POST(createRequest({ name: 'Test', email: 'test@example.com', password: 'é'.repeat(37) }));
-    expect(multibyte.status).toBe(400);
-
-    const edge = await POST(createRequest({ name: 'Test', email: 'test@example.com', password: 'a'.repeat(72) }));
-    expect(edge.status).not.toBe(400);
   });
 
   it('should return 409 when email already exists', async () => {
@@ -160,7 +138,10 @@ describe('POST /api/auth/register', () => {
     }
   });
 
-  it('should hash the password before storing', async () => {
+  // Sign-in is by mailed code now, so an account needs no password; the
+  // address is proven by the first code typed back (src/lib/login-code.ts).
+  it('creates an account without a password and hashes nothing', async () => {
+    const { hashPassword } = await import('@/lib/password-hash');
     vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.user.create).mockResolvedValue({
       id: 'new-user-id',
@@ -168,11 +149,31 @@ describe('POST /api/auth/register', () => {
       ...sealUserEmail('new@example.com'),
     } as never);
 
-    const req = createRequest({ name: 'New User', email: 'new@example.com', password: 'mypassword' });
-    await POST(req);
+    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com' }));
 
+    expect(res.status).toBe(201);
+    expect(hashPassword).not.toHaveBeenCalled();
+    expect(vi.mocked(prisma.user.create).mock.calls[0][0].data.password).toBeNull();
+  });
+
+  // A password typed at registration was typed by whoever typed the address,
+  // who may not own it (pre-registration takeover, ADR 0026), so none is
+  // accepted: the account is entered only through a code mailed to it.
+  it('ignores a password sent at registration and stores none', async () => {
+    const { hashPassword } = await import('@/lib/password-hash');
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: 'new-user-id',
+      name: 'New User',
+      ...sealUserEmail('new@example.com'),
+    } as never);
+
+    const res = await POST(createRequest({ name: 'New User', email: 'new@example.com', password: 'attacker-chosen' }));
+
+    expect(res.status).toBe(201);
+    expect(hashPassword).not.toHaveBeenCalled();
     const { data } = vi.mocked(prisma.user.create).mock.calls[0][0];
-    expect(data).toMatchObject({ name: 'New User', password: '$2a$12$hashedpassword' });
+    expect(data.password).toBeNull();
     // Sealed, not stored in the clear (ADR 0012).
     expect(data).not.toHaveProperty('email');
     expect(data.emailHmac).toBeDefined();

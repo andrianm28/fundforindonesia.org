@@ -9,9 +9,8 @@ import { lookupDonationGuestEmail, readUserEmail, SELECT_USER_EMAIL } from '@/li
  *
  * - **Only a verified address claims.** `emailVerifiedAt` is set by opening
  *   a link mailed to the address: the confirmation link
- *   (src/lib/email-verification.ts) or a password reset link
- *   (src/app/api/auth/password-reset/confirm/route.ts, ADR 0020 amendment),
- *   nothing else. An account registered with someone else's address, however
+ *   (src/lib/email-verification.ts) or a sign-in code (src/lib/login-code.ts,
+ *   ADR 0026), nothing else. An account registered with someone else's address, however
  *   exactly it matches, sees nothing.
  * - **Matching is by HMAC (ADR 0012).** The account's address is read once
  *   (it is already verified) and looked up under every configured HMAC key,

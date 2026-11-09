@@ -13,59 +13,14 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-vi.mock("@/lib/rate-limit", () => ({ consumeRateLimit: vi.fn() }));
-
-// The credentials login is exercised through the module under test, so bcrypt
-// is stubbed here rather than run at the production cost factor. The factor
-// itself is verified against real hashes in
-// `src/__tests__/integration/password-hash-cost.test.ts`; the cost is read off
-// the stored hash's prefix, so these tests set it through the stored string.
-vi.mock("@/lib/password-hash", () => ({
-  verifyPassword: vi.fn(),
-  hashPassword: vi.fn(),
-}));
-
-import { hashPassword, verifyPassword } from "@/lib/password-hash";
-import { consumeRateLimit } from "@/lib/rate-limit";
-import type { CredentialsConfig } from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
-import { PASSWORD_HASH_COST } from "@/lib/password-hash-cost";
 import { sessionPasswordClaim } from "@/lib/password-reset";
 import { lookupUserEmail, sealUserEmail } from "@/lib/contact-fields";
 
 const mockFindUnique = prisma.user.findUnique as unknown as Mock;
 const mockFindFirst = prisma.user.findFirst as unknown as Mock;
 const mockUpdate = prisma.user.update as unknown as Mock;
-const mockCompare = verifyPassword as unknown as Mock;
-const mockHash = hashPassword as unknown as Mock;
-const mockConsume = consumeRateLimit as unknown as Mock;
-
-const HASH_AT_CURRENT_COST = `$2b$${PASSWORD_HASH_COST}$` + "x".repeat(53);
-const HASH_BELOW_CURRENT_COST = `$2b$${PASSWORD_HASH_COST - 2}$` + "x".repeat(53);
-
-/**
- * The credentials provider's `authorize`, which is where login lives.
- *
- * next-auth's provider wrapper puts the call we wrote under `options` and
- * leaves a stub returning null at the top level, so this reaches into
- * `options`. That is the only way to drive the real function; the alternative
- * is to log in over HTTP, which no unit test in this repo does.
- */
-async function login(credentials: { email: string; password: string }, forwardedFor?: string) {
-  const provider = authOptions.providers.find(
-    (p): p is CredentialsConfig => p.id === "credentials"
-  );
-  if (!provider?.options) {
-    throw new Error("the credentials provider is missing from authOptions");
-  }
-  // The request argument is unused by our `authorize`, and every field of the
-  // shape next-auth asks for is optional.
-  return provider.options.authorize(
-    credentials,
-    forwardedFor ? { headers: { "x-forwarded-for": forwardedFor }, body: {}, query: {}, method: "POST" } : {}
-  );
-}
 
 // The adapter the app installs. This is the wiring only -- src/lib/auth-adapter.test.ts
 // drives the real adapter and next-auth's own sign-in step, which is where the
@@ -101,13 +56,13 @@ describe("authOptions.callbacks.jwt", () => {
     vi.clearAllMocks();
   });
 
-  it("carries the user's current assignments onto the token", async () => {
+  it("carries the user's current assignments onto a token signed in by code", async () => {
     mockFindUnique.mockResolvedValue({
       assignments: [{ assignment: "VERIFIER" }, { assignment: "ADMIN" }],
     });
 
     const token = await authOptions.callbacks!.jwt!({
-      token: { id: "user-1" } as any,
+      token: { id: "user-1", amr: "email-otp" } as any,
       user: undefined as any,
       account: null,
       profile: undefined,
@@ -194,7 +149,7 @@ describe("authOptions.callbacks.jwt: password claim", () => {
   it("keeps a session whose claim still matches the stored password", async () => {
     mockFindUnique.mockResolvedValue({ password: HASH, assignments: [{ assignment: "ADMIN" }] });
 
-    const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH) });
+    const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH), amr: "email-otp" });
 
     expect(token.id).toBe("user-1");
     expect(token.assignments).toEqual(["ADMIN"]);
@@ -310,130 +265,13 @@ describe("authOptions.callbacks.session", () => {
   });
 });
 
-describe("credentials login", () => {
-  // A row as `authorize` selects it: the sealed columns, no plaintext `email`
-  // (ADR 0012), and the lookup is the HMAC rather than a `findUnique` on the
-  // address -- see src/lib/auth-adapter.test.ts for the real adapter.
-  const storedUser = {
-    id: "user-1",
-    name: "Test",
-    avatar: null,
-    password: HASH_BELOW_CURRENT_COST,
-    ...sealUserEmail("test@test.com"),
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockFindFirst.mockResolvedValue(storedUser);
-    mockCompare.mockResolvedValue(true);
-    mockConsume.mockResolvedValue({ allowed: true, count: 1, retryAfterSeconds: 60 });
-  });
-
-  describe("rate limit", () => {
-    it("refuses over the limit before any lookup or password check", async () => {
-      mockConsume.mockResolvedValue({ allowed: false, count: 99, retryAfterSeconds: 60 });
-
-      await expect(login({ email: "test@test.com", password: "x" }, "203.0.113.7")).rejects.toThrow(
-        "Terlalu banyak percobaan masuk"
-      );
-      expect(mockFindFirst).not.toHaveBeenCalled();
-      expect(mockCompare).not.toHaveBeenCalled();
-    });
-
-    it("counts per client and address, and per client, with the address case-folded", async () => {
-      mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
-
-      await login({ email: " Test@Test.com ", password: "x" }, "203.0.113.7");
-
-      const counted = mockConsume.mock.calls.map(([, input]) => [input.scope, input.subject]);
-      expect(counted).toEqual([
-        ["auth-login", "203.0.113.7|test@test.com"],
-        ["auth-login-client", "203.0.113.7"],
-      ]);
-    });
-
-    it("fails open when the limiter is down", async () => {
-      mockConsume.mockRejectedValue(new Error("db down"));
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
-
-      await expect(login({ email: "test@test.com", password: "x" })).resolves.toMatchObject({ id: "user-1" });
-    });
-  });
-
-  it("returns the user on a correct password", async () => {
-    mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
-
-    const result = await login({ email: "test@test.com", password: "secret123" });
-
-    expect(result).toMatchObject({ id: "user-1", email: "test@test.com" });
-  });
-
-  it("rejects a wrong password", async () => {
-    mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
-    mockCompare.mockResolvedValue(false);
-
-    await expect(
-      login({ email: "test@test.com", password: "wrong" })
-    ).rejects.toThrow("Email atau password salah");
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  // An account weakened by an older password change is repaired on the login
-  // that proves the user knows the password, with nothing asked of them. The
-  // cost is read off the stored hash's own prefix, so no second source of truth
-  // has to be kept in sync and no row needs migrating.
-  it("re-hashes at the current factor when the stored hash is weaker, without asking the user", async () => {
-    mockHash.mockResolvedValue("$2a$12$rehashed");
-
-    const result = await login({
-      email: "test@test.com",
-      password: "secret123",
-    });
-
-    expect(mockHash).toHaveBeenCalledWith("secret123", PASSWORD_HASH_COST);
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: "user-1" },
-      data: { password: "$2a$12$rehashed" },
-    });
-    // The user is signed in either way; the repair is not what gates the login.
-    expect(result).toMatchObject({ id: "user-1" });
-  });
-
-  // The extra write is the cost of the repair, so it must be bounded: only when
-  // the stored hash is actually below the current factor, so not on every login
-  // and never on the request path.
-  it("writes nothing when the stored hash is already at the current factor", async () => {
-    mockFindFirst.mockResolvedValue({ ...storedUser, password: HASH_AT_CURRENT_COST });
-
-    await login({ email: "test@test.com", password: "secret123" });
-
-    expect(mockHash).not.toHaveBeenCalled();
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  it("still signs the user in when the re-hash fails", async () => {
-    mockHash.mockRejectedValue(new Error("database unavailable"));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await login({
-      email: "test@test.com",
-      password: "secret123",
-    });
-
-    expect(result).toMatchObject({ id: "user-1" });
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
-
-  it("leaves a Google-only account (no password) alone", async () => {
-    mockFindFirst.mockResolvedValue({ ...storedUser, password: null });
-
-    await expect(
-      login({ email: "test@test.com", password: "secret123" })
-    ).rejects.toThrow("Email atau password salah");
-    expect(mockHash).not.toHaveBeenCalled();
-    expect(mockUpdate).not.toHaveBeenCalled();
+describe("authOptions.providers", () => {
+  it("has no password provider: sign-in is by mailed code or Google only (owner, 9 Nov 2026)", () => {
+    // next-auth keeps a Credentials provider's own id under `options`; the
+    // top-level `id` of every one of them is "credentials".
+    const ids = authOptions.providers.map((p) => (p as { options?: { id?: string } }).options?.id ?? p.id);
+    expect(ids).not.toContain("credentials");
+    expect(ids).toContain("email-otp");
   });
 });
 
@@ -513,7 +351,7 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
     logged.mockRestore();
   });
 
-  it("adds only id, picture, assignments and the password claim to what next-auth already put on the token", async () => {
+  it("adds only id, sign-in method, picture, assignments and the password claim to what next-auth already put on the token", async () => {
     const seeded = { name: "Andi", email: "andi@email.com", sub: "g-1", picture: "https://lh3.googleusercontent.com/old.png" };
     const args = {
       token: { ...seeded },
@@ -528,17 +366,18 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
     expect(token).toEqual({
       ...seeded,
       id: "user-1",
+      amr: "google",
       picture: "https://lh3.googleusercontent.com/new",
       assignments: [],
       pwf: sessionPasswordClaim(null),
     });
   });
 
-  it("writes no avatar for a Credentials login, whatever the profile says", async () => {
+  it("writes no avatar for a code login, whatever the profile says", async () => {
     const token = await authOptions.callbacks!.jwt!({
       token: { picture: null },
       user: { id: "user-1", email: "andi@email.com", image: null },
-      account: { type: "credentials", provider: "credentials", providerAccountId: "user-1" },
+      account: { type: "credentials", provider: "email-otp", providerAccountId: "user-1" },
       profile: { picture: "https://lh3.googleusercontent.com/new" },
       trigger: "signIn",
     } as unknown as JwtArgs);

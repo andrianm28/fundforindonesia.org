@@ -30,8 +30,6 @@ export const pathnames = {
   '/privacy': '/privacy',
   '/login': '/login',
   '/register': '/register',
-  '/reset-password': '/reset-password',
-  '/lupa-password': { id: '/lupa-password', en: '/forgot-password' },
   '/receipt/[token]': '/receipt/[token]',
   '/akad-wakaf/[token]': '/akad-wakaf/[token]',
   '/sertifikat/[code]': { id: '/sertifikat/[code]', en: '/certificate/[code]' },

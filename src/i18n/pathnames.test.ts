@@ -27,9 +27,8 @@ describe('pathname map (ADR 0024 section 2)', () => {
   });
 
   it('gives the English spellings from the ADR table', () => {
-    expect(pathnames['/lupa-password']).toEqual({ id: '/lupa-password', en: '/forgot-password' });
-    expect(pathnames['/sertifikat/[code]']).toEqual({ id: '/sertifikat/[code]', en: '/certificate/[code]' });
     expect(pathnames['/wakaf']).toEqual({ id: '/wakaf', en: '/waqf' });
+    expect(pathnames['/sertifikat/[code]']).toEqual({ id: '/sertifikat/[code]', en: '/certificate/[code]' });
     expect(pathnames['/hibah']).toBe('/hibah');
     expect(pathnames['/campaign/[slug]']).toBe('/campaign/[slug]');
   });

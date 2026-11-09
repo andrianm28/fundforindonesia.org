@@ -63,7 +63,8 @@ vi.mock("@/lib/auth", async () => {
     getServerSession: async () => {
       if (!cookieUserId) return null;
       const token = await actual.authOptions.callbacks!.jwt!({
-        token: { id: cookieUserId } as never,
+        // Signed in by code: operator authority needs it (ADR 0026).
+        token: { id: cookieUserId, amr: "email-otp" } as never,
         user: undefined as never,
         account: null,
         profile: undefined,
