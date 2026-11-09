@@ -236,11 +236,6 @@ jobs:
       # The e2e seed creates an Admin and a Verifier who can sign in; it runs
       # only against a database declared throwaway (tests/e2e/seed-e2e.ts).
       E2E_THROWAWAY_DATABASE: "1"
-      # The seeded Admin and Verifier have no authenticator app. Production
-      # holds the grace at 0 (src/lib/mfa-gate.ts); this throwaway job gives the
-      # operators a long one so the specs can reach the panels. The gate itself
-      # is proved by src/app/api/admin/mfa-second-factor-404.test.ts.
-      MFA_ENROLL_GRACE_DAYS: "36500"
       # Ticket 64: production refuses document uploads without a private
       # volume; the job's throwaway one is a temp folder outside the tree.
       PRIVATE_DOCUMENT_DIR: /tmp/ffi-e2e-private-documents

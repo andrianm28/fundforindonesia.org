@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, FormEvent } from 'react';
-import { signIn, getProviders, getSession } from 'next-auth/react';
+import { signIn, getProviders } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
@@ -107,20 +107,7 @@ export default function LoginPage() {
           setError('Email atau password salah');
         }
       } else if (result?.ok) {
-        const callback = callbackUrlFromLocation();
-        // An Admin or Verifier whose second factor is not yet satisfied would
-        // meet a 404 at the panel (owner rule, pks-pemenuhan/03): take them to
-        // the page where they enrol or enter the code, and on from there.
-        // Best-effort: if the session cannot be read, carry on as before.
-        let needsFactor = false;
-        try {
-          const session = await getSession();
-          const state = session?.user?.mfaState;
-          needsFactor = state === 'challenge' || state === 'enroll';
-        } catch {
-          needsFactor = false;
-        }
-        router.push(needsFactor ? `/akun/keamanan?callbackUrl=${encodeURIComponent(callback)}` : callback);
+        router.push(callbackUrlFromLocation());
       }
     } catch {
       setError('Terjadi kesalahan. Silakan coba lagi.');

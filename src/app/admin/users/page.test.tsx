@@ -77,47 +77,6 @@ describe('AdminUsersPage', () => {
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 
-  describe('resetting a second factor (pks-pemenuhan/03)', () => {
-    afterEach(() => vi.unstubAllGlobals());
-
-    it("posts the reset for another person's row with the reason typed, and tells the Admin", async () => {
-      vi.stubGlobal('prompt', vi.fn(() => 'HP hilang'));
-      const alertMock = vi.fn();
-      vi.stubGlobal('alert', alertMock);
-      const budi = await openAtRowOf('Budi');
-
-      fireEvent.click(within(budi).getByRole('button', { name: 'Reset MFA' }));
-
-      await waitFor(() => expect(alertMock).toHaveBeenCalled());
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/admin/users/u-1/mfa/reset',
-        expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'HP hilang' }) }),
-      );
-    });
-
-    it('asks again instead of posting when the reason is blank', async () => {
-      vi.stubGlobal('prompt', vi.fn(() => '   '));
-      const alertMock = vi.fn();
-      vi.stubGlobal('alert', alertMock);
-      const budi = await openAtRowOf('Budi');
-      fireEvent.click(within(budi).getByRole('button', { name: 'Reset MFA' }));
-      expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/Alasan wajib/));
-      expect(fetchMock).not.toHaveBeenCalledWith('/api/admin/users/u-1/mfa/reset', expect.anything());
-    });
-
-    it('does nothing when the Admin cancels the prompt', async () => {
-      vi.stubGlobal('prompt', vi.fn(() => null));
-      const budi = await openAtRowOf('Budi');
-      fireEvent.click(within(budi).getByRole('button', { name: 'Reset MFA' }));
-      expect(fetchMock).not.toHaveBeenCalledWith('/api/admin/users/u-1/mfa/reset', expect.anything());
-    });
-
-    it('offers no reset on your own row', async () => {
-      const saya = await openAtRowOf('Saya');
-      expect(within(saya).queryByRole('button', { name: 'Reset MFA' })).toBeNull();
-    });
-  });
-
   it('grants VERIFIER immediately through the assignments route', async () => {
     const cinta = await openAtRowOf('Cinta');
 

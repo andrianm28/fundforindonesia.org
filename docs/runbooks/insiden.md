@@ -38,40 +38,6 @@ Setiap perubahan (siapa, kapan, nilai lama dan baru) tercatat dan tampil di **Ri
 
 Admin tidak bisa masuk panel (mis. login rusak): owner menutup donasi dengan mengubah `NEXT_PUBLIC_DONATIONS_ENABLED` dan membangun ulang image, di host produksi, mengikuti alur deploy biasa.
 
-## Autentikasi dua faktor (MFA) pemegang Admin dan Verifier
-
-Kode di `src/lib/mfa*.ts`; tiket `.scratch/pks-pemenuhan/issues/03-mfa-totp-admin.md`. Setiap pemegang penugasan ADMIN atau VERIFIER wajib memakai kode TOTP (aplikasi autentikator) selain kata sandi.
-
-### Setelah deploy: Admin harus mendaftar seketika
-
-**Begitu rilis yang memuat MFA ini aktif, setiap pemegang ADMIN atau VERIFIER mendapat 404 di semua panel (`/admin`, `/moderasi`, dan API-nya) sampai mereka mendaftar di `/akun/keamanan`.** Sesi mereka tidak membawa wewenang apa pun sebelum faktor kedua terpenuhi, jadi dari luar tampak persis seperti orang yang bukan pemegang. Ini disengaja, bukan galat.
-
-1. Beri tahu semua Admin dan Verifier **sebelum** deploy, dan minta mereka siap dengan aplikasi autentikator.
-2. **Segera setelah deploy**, setiap Admin membuka `/akun/keamanan`, memindai kode QR, memasukkan kode pertama, lalu **menyimpan sepuluh kode cadangan** di tempat aman (kode hanya tampil sekali).
-3. Verifier mendaftar dengan cara yang sama. Selama Verifier belum mendaftar, keputusan Payout dan Refund yang menunggu mereka tertahan.
-4. Setiap pendaftaran dan setiap pembuatan ulang kode cadangan mengirim notifikasi dalam aplikasi ke pemilik akun ("faktor kedua diaktifkan, hubungi Admin bila bukan Anda"). Bila ada Admin yang menerima notifikasi ini tanpa merasa mendaftar, anggap akun itu dibobol: reset faktornya lewat Admin lain dan ganti kata sandinya.
-
-### `MFA_ENROLL_GRACE_DAYS` harus 0 di produksi
-
-`MFA_ENROLL_GRACE_DAYS` memberi masa tenggang (hari sejak penugasan) di mana pemegang boleh bekerja tanpa mendaftar. **Di produksi nilainya harus `0`** (default bila tidak diisi): tenggang berarti panel berjalan tanpa faktor kedua. Sebagai pengaman, bila `NODE_ENV=production` dan `CI` bukan `true`, nilai di atas 30 dipotong menjadi 30 dan satu baris `{"event":"mfa_grace_clamped",...}` ditulis ke log; bila baris itu muncul, perbaiki nilainya menjadi 0. Nilai besar (36500) hanya dipakai e2e CI.
-
-### Perangkat hilang
-
-- **Kode cadangan masih ada:** masuk dengan salah satu kode cadangan (sekali pakai), lalu di `/akun/keamanan` buat kode cadangan baru. Membuat ulang kode cadangan membutuhkan kode TOTP, jadi bila perangkat sudah hilang minta Admin lain mereset.
-- **Perangkat hilang, kode cadangan masih ada atau tidak:** Admin lain membuka **Manajemen Pengguna**, menekan **Reset MFA** pada baris orang itu, dan **wajib** menulis alasan (maksimal 500 karakter; tercatat di jejak audit bersama nama pelaku). Orang itu lalu mendaftar ulang. Tidak ada reset untuk diri sendiri.
-- **Terkunci:** lima kode salah dalam lima menit menahan verifikasi sebentar; **dua puluh percobaan dalam satu hari** (jendela harian, berganti pukul 00.00 UTC = 07.00 WIB) mengunci verifikasi sampai jendela berganti. Pesannya jelas di layar. Admin lain dapat mereset faktornya agar langsung bisa mendaftar ulang.
-
-### Admin tunggal yang kehilangan perangkat dan kode cadangan
-
-Bila satu-satunya Admin kehilangan perangkat **dan** semua kode cadangan, tidak ada Admin lain yang bisa mereset, dan orang itu sendiri tidak bisa masuk panel. Pemulihannya langkah database yang **dijalankan owner**, bukan agent dan bukan lewat aplikasi:
-
-1. Pastikan identitas orang itu lewat jalur di luar platform (telepon atau tatap muka), dan catat alasannya.
-2. Di database aplikasi, hapus baris faktor kedua milik pengguna itu (tabel `UserMfa`, berdasarkan `userId`) dan kode cadangannya (tabel `MfaBackupCode`, berdasarkan `userId`), dalam satu transaksi. Tambahkan satu baris di tabel jejak audit MFA (`MfaAuditEntry`) dengan aksi `RESET`, `userId` pengguna, `actedById` akun owner, dan alasan yang dicatat tadi, supaya tindakan ini tetap terlihat.
-3. Pengguna itu masuk, dan karena faktornya kosong dia diarahkan ke `/akun/keamanan` untuk mendaftar ulang. Minta dia menyimpan kode cadangan baru.
-4. Cegah terulang: pastikan ada **minimal dua Admin**, masing-masing sudah mendaftar.
-
-Jangan menaikkan `MFA_ENROLL_GRACE_DAYS` sebagai jalan pintas pemulihan.
-
 ## Webhook penyedia gagal atau tidak cocok
 
 Gejala: pembayaran sudah terjadi di dashboard penyedia tetapi Donation tidak berstatus lunas, atau muncul baris di **Rekonsiliasi > Antrean webhook yang perlu ditinjau** atau **Charge tanpa Payment**.

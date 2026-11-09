@@ -43,7 +43,7 @@ vi.mock("@/lib/prisma", () => {
       ...tx,
       user: {
         findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({
-          assignments: table.filter((r) => r.userId === where.id).map((r) => ({ assignment: r.assignment, assignedAt: new Date() })),
+          assignments: table.filter((r) => r.userId === where.id).map((r) => ({ assignment: r.assignment })),
         })),
       },
       bankAccountVerificationRequest: { findMany: vi.fn(async () => []) },
@@ -105,10 +105,6 @@ function verifierQueueRequest() {
 
 describe("a revoked assignment stops working on the very next request", () => {
   beforeEach(() => {
-    // This test is about revocation, not the second factor (see
-    // mfa-second-factor-404.test.ts): inside the grace window an unenrolled
-    // holder keeps the assignments the guards look at.
-    vi.stubEnv("MFA_ENROLL_GRACE_DAYS", "36500");
     table.length = 0;
     table.push(
       { userId: "admin-1", assignment: "ADMIN" },

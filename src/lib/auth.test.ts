@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import type { DefaultSession, Session } from "next-auth";
 
 vi.mock("@/lib/prisma", () => ({
@@ -99,15 +99,11 @@ describe("authOptions.adapter", () => {
 describe("authOptions.callbacks.jwt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The second factor has its own tests (auth-mfa.test.ts); inside the grace
-    // window an unenrolled holder keeps the assignments these tests look at.
-    vi.stubEnv("MFA_ENROLL_GRACE_DAYS", "36500");
   });
-  afterEach(() => vi.unstubAllEnvs());
 
   it("carries the user's current assignments onto the token", async () => {
     mockFindUnique.mockResolvedValue({
-      assignments: [{ assignment: "VERIFIER", assignedAt: new Date() }, { assignment: "ADMIN", assignedAt: new Date() }],
+      assignments: [{ assignment: "VERIFIER" }, { assignment: "ADMIN" }],
     });
 
     const token = await authOptions.callbacks!.jwt!({
@@ -141,7 +137,7 @@ describe("authOptions.callbacks.jwt", () => {
   // (retire-role-hierarchy): the token carries assignments, and only them.
   it("reads only the assignments, once, and puts no Role or self-claimed verification on the token", async () => {
     mockFindUnique.mockResolvedValue({
-      assignments: [{ assignment: "VERIFIER", assignedAt: new Date() }],
+      assignments: [{ assignment: "VERIFIER" }],
     });
 
     const token = await authOptions.callbacks!.jwt!({
@@ -155,16 +151,11 @@ describe("authOptions.callbacks.jwt", () => {
     expect(mockFindUnique).toHaveBeenCalledOnce();
     expect(mockFindUnique).toHaveBeenCalledWith({
       where: { id: "user-3" },
-      select: {
-        password: true,
-        assignments: { select: { assignment: true, assignedAt: true } },
-        mfa: { select: { enabledAt: true } },
-      },
+      select: { password: true, assignments: { select: { assignment: true } } },
     });
-    // `pwf` is the password claim (rilis-1 93), tested below; `sid` and
-    // `mfaState` are the second-factor session id and state
-    // (pks-pemenuhan/03). Nothing else is added.
-    expect(Object.keys(token).sort()).toEqual(["assignments", "id", "mfaState", "pwf", "sid"]);
+    // `pwf` is the password claim (rilis-1 93), tested below; it is the only
+    // thing besides assignments and the id that the callback adds.
+    expect(Object.keys(token).sort()).toEqual(["assignments", "id", "pwf"]);
   });
 });
 
@@ -189,9 +180,7 @@ describe("authOptions.callbacks.jwt: password claim", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv("MFA_ENROLL_GRACE_DAYS", "36500");
   });
-  afterEach(() => vi.unstubAllEnvs());
 
   it("puts the claim for the stored password on the token at sign-in", async () => {
     mockFindUnique.mockResolvedValue({ password: HASH, assignments: [] });
@@ -203,7 +192,7 @@ describe("authOptions.callbacks.jwt: password claim", () => {
   });
 
   it("keeps a session whose claim still matches the stored password", async () => {
-    mockFindUnique.mockResolvedValue({ password: HASH, assignments: [{ assignment: "ADMIN", assignedAt: new Date() }] });
+    mockFindUnique.mockResolvedValue({ password: HASH, assignments: [{ assignment: "ADMIN" }] });
 
     const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH) });
 
@@ -212,7 +201,7 @@ describe("authOptions.callbacks.jwt: password claim", () => {
   });
 
   it("ends a session issued under a password that has since changed: no id, no authority", async () => {
-    mockFindUnique.mockResolvedValue({ password: NEW_HASH, assignments: [{ assignment: "ADMIN", assignedAt: new Date() }] });
+    mockFindUnique.mockResolvedValue({ password: NEW_HASH, assignments: [{ assignment: "ADMIN" }] });
 
     const token = await callJwt({ id: "user-1", pwf: sessionPasswordClaim(HASH), assignments: ["ADMIN"] });
 
@@ -317,7 +306,7 @@ describe("authOptions.callbacks.session", () => {
       trigger: "update",
     } as any);
 
-    expect(Object.keys(session.user!).sort()).toEqual(["assignments", "id", "mfaState"]);
+    expect(Object.keys(session.user!).sort()).toEqual(["assignments", "id"]);
   });
 });
 
@@ -542,8 +531,6 @@ describe("authOptions.callbacks.jwt on an OAuth sign-in", () => {
       picture: "https://lh3.googleusercontent.com/new",
       assignments: [],
       pwf: sessionPasswordClaim(null),
-      sid: expect.any(String),
-      mfaState: "none",
     });
   });
 

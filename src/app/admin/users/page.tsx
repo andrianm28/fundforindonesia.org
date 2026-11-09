@@ -466,29 +466,6 @@ function UserRow({
 }) {
   const isSelf = user.id === currentUserId;
 
-  // Another Admin removes this person's second factor (pks-pemenuhan/03, lost
-  // phone); the route records who did it and refuses one's own.
-  const resetMfa = async () => {
-    const typed = window.prompt(`Reset autentikasi dua faktor ${user.name || user.email}? Alasan (wajib, maksimal 500 karakter):`);
-    if (typed === null) return;
-    const reason = typed.trim();
-    if (!reason || reason.length > 500) {
-      window.alert("Alasan wajib diisi (maksimal 500 karakter).");
-      return;
-    }
-    try {
-      const res = await fetch(`/api/admin/users/${user.id}/mfa/reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      const data = await res.json().catch(() => ({}));
-      window.alert(res.ok ? "Autentikasi dua faktor direset. Pengguna harus mendaftar ulang." : data.error || "Gagal mereset.");
-    } catch {
-      window.alert("Gagal mereset.");
-    }
-  };
-
   return (
     <>
       <tr className="hover:bg-gray-50 transition-colors">
@@ -541,15 +518,6 @@ function UserRow({
           >
             {audit.open ? "Tutup riwayat" : "Riwayat"}
           </button>
-          {!isSelf && (
-            <button
-              type="button"
-              onClick={resetMfa}
-              className="ml-3 text-xs font-medium text-red-600 hover:underline"
-            >
-              Reset MFA
-            </button>
-          )}
         </td>
       </tr>
       {audit.open && (

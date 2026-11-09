@@ -5,10 +5,8 @@ import LoginPage from './page';
 // Mock next-auth/react
 const mockSignIn = vi.fn();
 const mockGetProviders = vi.fn();
-const mockGetSession = vi.fn();
 vi.mock('next-auth/react', () => ({
   signIn: (...args: unknown[]) => mockSignIn(...args),
-  getSession: () => mockGetSession(),
   getProviders: () => mockGetProviders(),
 }));
 
@@ -46,7 +44,6 @@ describe('LoginPage', () => {
   beforeEach(() => {
     mockSignIn.mockResolvedValue({ ok: false, error: null });
     mockGetProviders.mockResolvedValue(WITH_GOOGLE);
-    mockGetSession.mockResolvedValue({ user: { id: 'u1', assignments: [], mfaState: 'none' } });
   });
 
   it('renders login form with email and password fields', () => {
@@ -219,36 +216,6 @@ describe('LoginPage', () => {
       expect(mockPush).toHaveBeenCalledWith('/volunteer-trip/mengajar');
     });
     window.history.pushState({}, '', '/');
-  });
-
-  describe.each(['challenge', 'enroll'])('a holder whose second factor is %s (pks-pemenuhan/03)', (mfaState) => {
-    it('goes to /akun/keamanan, carrying where they were headed, instead of a panel that would 404', async () => {
-      window.history.pushState({}, '', '/login?callbackUrl=%2Fadmin%2Fusers');
-      mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-      mockGetSession.mockResolvedValue({ user: { id: 'u1', assignments: [], mfaState } });
-      render(<LoginPage />);
-
-      fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
-      fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
-      fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-
-      await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/akun/keamanan?callbackUrl=%2Fadmin%2Fusers');
-      });
-      window.history.pushState({}, '', '/');
-    });
-  });
-
-  it('still returns to the callback when the session cannot be read after sign-in', async () => {
-    mockSignIn.mockResolvedValueOnce({ ok: true, error: null });
-    mockGetSession.mockRejectedValue(new Error('network'));
-    render(<LoginPage />);
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /masuk$/i }));
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/');
-    });
   });
 
   it('ignores a ?callbackUrl that leaves the site', async () => {
