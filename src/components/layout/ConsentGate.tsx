@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { LEGAL_DOCS_VERSION } from '@/lib/site-identity';
 
 /** Where a signed-in person who has not accepted the current Terms is sent. */
 export const CONSENT_PATH = '/akun/persetujuan';
@@ -12,9 +13,12 @@ const OPEN_PATHS = [CONSENT_PATH, '/terms', '/privacy', '/login'];
 
 const CACHE_PREFIX = 'consent-ok:';
 
+/** The key names the documents' version, so a new LEGAL_DOCS_VERSION is never answered from an old acceptance. */
+const cacheKey = (userId: string) => `${CACHE_PREFIX}${LEGAL_DOCS_VERSION}:${userId}`;
+
 function readCache(userId: string): boolean {
   try {
-    return window.sessionStorage.getItem(CACHE_PREFIX + userId) === '1';
+    return window.sessionStorage.getItem(cacheKey(userId)) === '1';
   } catch {
     return false;
   }
@@ -22,13 +26,13 @@ function readCache(userId: string): boolean {
 
 function writeCache(userId: string) {
   try {
-    window.sessionStorage.setItem(CACHE_PREFIX + userId, '1');
+    window.sessionStorage.setItem(cacheKey(userId), '1');
   } catch {
     // Storage blocked: the ref still avoids a check per navigation.
   }
 }
 
-/** Forget the remembered answer (after a POST to /api/user/consent, or on sign-out). */
+/** Forget every remembered answer; called after the consent page records an acceptance. */
 export function clearConsentCache() {
   try {
     const keys: string[] = [];
@@ -51,7 +55,7 @@ export function clearConsentCache() {
  * (GET /api/user/consent); this only sends the person to the page that records
  * it. The gate is deliberately soft: it protects a consent record, not money
  * or access, and server routes do not enforce it. So it asks once per session:
- * an "accepted" answer is remembered in a ref and in sessionStorage per user id,
+ * an "accepted" answer is remembered in a ref and in sessionStorage per document version and user id,
  * and cleared after the consent POST. A failed check lets the person through
  * and is not remembered, so the next page load asks again.
  */

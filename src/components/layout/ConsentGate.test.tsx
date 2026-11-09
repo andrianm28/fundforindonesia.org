@@ -12,6 +12,9 @@ vi.mock('next-auth/react', () => ({
 }));
 
 import { ConsentGate, clearConsentCache } from './ConsentGate';
+import { LEGAL_DOCS_VERSION } from '@/lib/site-identity';
+
+const KEY_U1 = `consent-ok:${LEGAL_DOCS_VERSION}:u1`;
 
 function answer(body: unknown, ok = true) {
   const fetchMock = vi.fn().mockResolvedValue({ ok, json: async () => body });
@@ -78,7 +81,7 @@ describe('ConsentGate (Google first sign-in, PKS 3.1)', () => {
   it('asks once per session: later navigations reuse the accepted answer', async () => {
     const fetchMock = answer({ pending: false });
     const { rerender } = render(<ConsentGate />);
-    await waitFor(() => expect(window.sessionStorage.getItem('consent-ok:u1')).toBe('1'));
+    await waitFor(() => expect(window.sessionStorage.getItem(KEY_U1)).toBe('1'));
     for (const path of ['/campaigns', '/akun', '/explore']) {
       state.pathname = path;
       rerender(<ConsentGate />);
@@ -87,7 +90,7 @@ describe('ConsentGate (Google first sign-in, PKS 3.1)', () => {
   });
 
   it('reads the answer from sessionStorage for that user id, and not for another', async () => {
-    window.sessionStorage.setItem('consent-ok:u1', '1');
+    window.sessionStorage.setItem(KEY_U1, '1');
     const fetchMock = answer({ pending: false });
     render(<ConsentGate />);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -101,13 +104,22 @@ describe('ConsentGate (Google first sign-in, PKS 3.1)', () => {
     const fetchMock = answer({ pending: true });
     render(<ConsentGate />);
     await waitFor(() => expect(state.replace).toHaveBeenCalled());
-    expect(window.sessionStorage.getItem('consent-ok:u1')).toBeNull();
+    expect(window.sessionStorage.getItem(KEY_U1)).toBeNull();
 
-    window.sessionStorage.setItem('consent-ok:u1', '1');
+    window.sessionStorage.setItem(KEY_U1, '1');
     clearConsentCache();
-    expect(window.sessionStorage.getItem('consent-ok:u1')).toBeNull();
+    expect(window.sessionStorage.getItem(KEY_U1)).toBeNull();
     cleanup();
     render(<ConsentGate />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not trust an acceptance remembered for an older document version', async () => {
+    window.sessionStorage.setItem('consent-ok:2000-01-01:u1', '1');
+    window.sessionStorage.setItem('consent-ok:u1', '1');
+    const fetchMock = answer({ pending: true });
+    render(<ConsentGate />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(state.replace).toHaveBeenCalled());
   });
 });

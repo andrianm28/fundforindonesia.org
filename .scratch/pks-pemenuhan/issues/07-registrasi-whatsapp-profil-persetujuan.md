@@ -13,7 +13,7 @@
 
 ## Comments
 
-2026-11-11, builder (sonnet), migrasi `20261111070000_registrasi_profil_persetujuan`.
+2026-11-09, builder (sonnet), migrasi `20261111070000_registrasi_profil_persetujuan`.
 
 - Skema: `User.profileType` (enum `ProfileType`, default INDIVIDUAL), model `UserConsent` (`userId`, `document` TERMS|PRIVACY, `version`, `acceptedAt`; unik per pengguna+dokumen+versi, cascade). Aditif; `prisma migrate diff` kosong terhadap DB yang sudah dimigrasi.
 - WhatsApp: opsional, dinormalkan `628...` (`src/lib/whatsapp.ts`), disimpan lewat `sealUserPhone` ke `phoneCiphertext/phoneKeyId` (ADR 0012, tanpa kolom polos). Dibaca lewat `GET /api/user/profile` (pemilik saja); diubah/dikosongkan lewat `PATCH /api/user/profile` dan bagian "Kontak dan Jenis Profil" di /akun/pengaturan.
@@ -22,7 +22,7 @@
 - Keputusan terbuka untuk owner: (1) akun password lama tanpa catatan tidak ditahan; (2) akun yang lahir dari login OTP (PR #330) tidak punya `Account`, jadi jalur OTP harus menulis persetujuan sendiri atau definisi "pending" diganti menjadi "tanpa catatan sama sekali"; (3) menaikkan `LEGAL_DOCS_VERSION` belum memicu persetujuan ulang.
 - Tidak ada env var baru; allowlist properti tidak perlu diubah (tidak ada halaman/API Admin baru).
 
-2026-11-11, tindak lanjut review independen (commit lanjutan).
+2026-11-09, tindak lanjut review independen (commit lanjutan).
 
 - "Pending" kini berarti: pengguna tidak punya baris `UserConsent` untuk `LEGAL_DOCS_VERSION` sekarang, untuk TERMS atau PRIVACY, berlaku untuk semua jenis akun (Google, password, OTP). Akun lama ditanya sekali; menaikkan versi meminta semua orang menyetujui ulang. Keputusan terbuka (1) dan (3) di atas selesai; (2) selesai sebagai definisi, lihat catatan OTP di bawah.
 - `ConsentGate` bertanya sekali per sesi (ref + sessionStorage per user id, dibersihkan setelah POST), tetap gagal-terbuka.
