@@ -204,6 +204,9 @@ describe('AdminReconciliationPage', () => {
     expect(event.textContent).toMatch(/nominal tidak cocok/i);
     expect(event.textContent).toContain('AMOUNT_MISMATCH');
     expect(event.textContent).toContain('29 Oktober 2026');
+    // Closing a reviewed event is on the screen, with a note field (PKS pemenuhan 05).
+    expect(within(event).getByLabelText('Catatan penyelesaian')).toBeInTheDocument();
+    expect(within(event).getByRole('button', { name: 'Tandai selesai' })).toBeDisabled();
     expect(within(queue).getByText('don-9', { selector: 'td' }).closest('tr')!.textContent).toContain('Rp25.000');
     expect(screen.getByRole('region', { name: /ringkasan/i })).toHaveTextContent(/2 temuan/i);
   });

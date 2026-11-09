@@ -203,6 +203,10 @@ _Avoid_: Akun gateway, rekening merchant, akun PG
 Salah satu dari dua merchant account FFI di satu gateway: `YAYASAN` (donasi, zakat, wakaf/hibah) atau `BADAN_USAHA` (pendapatan platform/komersial). Donasi selalu `YAYASAN`. Tersimpan pada Payment, ProviderWithdrawal, dan setiap baris buku besar; rekonsiliasi dibaca per Merchant Entity.
 _Avoid_: Entitas, akun
 
+**Failed Notification**:
+Email yang ditolak penyedia email, disimpan di antrean (PKS Pasal 8(2)) dengan isinya terenkripsi dan penerimanya hanya berupa HMAC. Job terjadwal mencoba ulang dengan jeda yang makin panjang sampai lima kegagalan, lalu baris itu gagal permanen dan hanya Admin yang bisa mengirim ulang. Email berisi tautan kredensial (reset sandi, verifikasi email) tidak diantrekan. Bukan Notification dalam aplikasi, yang dibuat terpisah dan tidak bergantung pada email.
+_Avoid_: Email bounce, outbox
+
 **Provider Fee**:
 Biaya yang dipotong penyedia pembayaran atas satu Payment, dibaca dari payload penyedia dan ditanggung Campaign. Bukan pendapatan platform.
 _Avoid_: Biaya admin, gateway fee

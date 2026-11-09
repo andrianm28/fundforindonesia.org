@@ -29,6 +29,12 @@ vi.mock('@/lib/mail', () => ({
   sendReportingFailure: vi.fn().mockResolvedValue(true),
 }));
 
+// The queue phase is tested against a real Postgres (PKS pemenuhan 05); here it
+// is a zero result, so this file stays about the HTTP boundary.
+vi.mock('@/lib/failed-notifications', () => ({
+  runNotificationQueuePhase: vi.fn().mockResolvedValue({ attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [] }),
+}));
+
 vi.mock('@/lib/jobs-heartbeat', () => ({
   recordJobsRun: vi.fn(),
 }));
@@ -278,6 +284,7 @@ describe('POST /api/internal/jobs/run -- an authorised run', () => {
         kindAuthorisationExpiryWarnings: { attemptedCount: 1, consideredCount: 1 },
         lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
         companyRetention: { consideredCount: 0, anonymisedCount: 0 },
+        notificationQueue: { attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [] },
       },
     });
   });
@@ -339,6 +346,7 @@ describe('POST /api/internal/jobs/run -- a repeated call', () => {
         kindAuthorisationExpiryWarnings: { attemptedCount: 0, consideredCount: 0 },
         lateSettlementRefunds: { consideredCount: 0, attemptedCount: 0, refundedCount: 0, skippedCount: 0, failedCount: 0 },
         companyRetention: { consideredCount: 0, anonymisedCount: 0 },
+        notificationQueue: { attemptedCount: 0, sentCount: 0, failedCount: 0, alertsSent: [] },
       },
     });
     expect((await third.json()).result.escrowRelease.releasedCount).toBe(0);

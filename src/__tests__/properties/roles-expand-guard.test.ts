@@ -171,6 +171,17 @@ import { join } from "node:path";
  * NOTE (ticket 79): `GET /api/admin/finance/recap` serves the finance recap
  * CSV through withHiddenAssignmentCheck on the ADMIN assignment -- read-only,
  * growing this list by one.
+ *
+ * NOTE (PKS pemenuhan 05): `POST /api/admin/failed-notifications/[id]/resend`
+ * (an Admin sends a queued email again) and
+ * `POST /api/admin/webhook-events/[id]/resolve` (an Admin closes a reviewed
+ * webhook event with a note), both through withHiddenAssignmentCheck on the
+ * ADMIN assignment, so anyone else gets the literal 404 -- growing this list by
+ * two. `src/lib/failed-notifications.ts` joins as a non-route: it reads the
+ * ADMIN assignment only to learn WHO to email when notifications pile up
+ * (prisma.userAssignment), and decides no one's access. The page
+ * /admin/notifikasi-gagal needs no entry: it asks nothing itself and relies on
+ * the /admin layout, which answers non-Admins with a 404.
  */
 
 const ASSIGNMENT_GUARDED_ROUTES = [
@@ -208,6 +219,8 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/api/admin/programs/[id]/route.ts",
   "src/app/api/admin/programs/route.ts",
   "src/app/api/admin/finance/recap/route.ts",
+  "src/app/api/admin/failed-notifications/[id]/resend/route.ts",
+  "src/app/api/admin/webhook-events/[id]/resolve/route.ts",
   // ticket 90: the Admin APIs' 404 for anyone without ADMIN, in front of the
   // Trip suspension module, which still decides who may suspend or lift.
   "src/app/api/admin/volunteer-trips/[id]/suspension/route.ts",
@@ -241,6 +254,10 @@ const ASSIGNMENT_GUARDED_ROUTES = [
   "src/app/moderasi/rekening/page.tsx",
   "src/app/moderasi/volunteer-trips/[id]/page.tsx",
   "src/app/moderasi/volunteer-trips/page.tsx",
+  // Not a route: the failed notification queue (PKS pemenuhan 05) reads who holds
+  // ADMIN to know whom to email about a pile-up; it grants and refuses nothing.
+  // Its Admin routes have already required ADMIN.
+  "src/lib/failed-notifications.ts",
   // Not a route: the Capacity judgement, which the lifecycle module, the
   // money operations and Trip moderation ask, because "owner or Admin" and
   // "never Admin on your own Campaign or Trip" are not single-assignment

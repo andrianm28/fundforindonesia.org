@@ -934,3 +934,46 @@ export class LateSettlementNotProposableError extends MoneyError {
     this.name = 'LateSettlementNotProposableError';
   }
 }
+
+/** The failed notification is not in the queue. */
+export class NotificationNotFoundError extends MoneyError {
+  readonly code = 'NOTIFICATION_NOT_FOUND';
+  constructor(readonly notificationId: string) {
+    super('Notifikasi gagal tidak ditemukan.');
+    this.name = 'NotificationNotFoundError';
+  }
+}
+
+/** Already sent, or another runner or Admin holds it right now. */
+export class NotificationNotResendableError extends MoneyError {
+  readonly code = 'NOTIFICATION_NOT_RESENDABLE';
+  constructor(readonly notificationId: string) {
+    super('Notifikasi ini sudah terkirim atau sedang dikirim oleh proses lain.');
+    this.name = 'NotificationNotResendableError';
+  }
+}
+
+export class WebhookEventNotFoundError extends MoneyError {
+  readonly code = 'WEBHOOK_EVENT_NOT_FOUND';
+  constructor(readonly webhookEventId: string) {
+    super('Event webhook tidak ditemukan.');
+    this.name = 'WebhookEventNotFoundError';
+  }
+}
+
+/** Not an outcome that needs review, or an Admin already closed it. */
+export class WebhookEventNotOpenError extends MoneyError {
+  readonly code = 'WEBHOOK_EVENT_NOT_OPEN';
+  constructor(readonly webhookEventId: string) {
+    super('Event webhook ini tidak ada di antrean tinjauan atau sudah ditandai selesai.');
+    this.name = 'WebhookEventNotOpenError';
+  }
+}
+
+export class WebhookResolutionInvalidError extends MoneyError {
+  readonly code = 'WEBHOOK_RESOLUTION_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'WebhookResolutionInvalidError';
+  }
+}

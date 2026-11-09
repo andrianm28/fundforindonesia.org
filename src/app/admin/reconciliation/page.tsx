@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { AdminProviderWithdrawalForm } from '@/components/admin/AdminProviderWithdrawalForm';
+import { AdminResolveWebhookForm } from '@/components/admin/AdminResolveWebhookForm';
 import { buildReconciliationReport } from '@/lib/money/reconciliation-report';
 import { listReconciliationQueue, WEBHOOK_OUTCOME } from '@/lib/money/payment-reconciliation';
 import { PAYMENT_PROVIDER_NAMES } from '@/lib/payments/provider-names';
@@ -14,8 +15,10 @@ export const dynamic = 'force-dynamic';
  * charges with no Payment (listReconciliationQueue), and records a sweep from a
  * provider through POST /api/admin/provider-withdrawals.
  *
- * Reports, never corrects: nothing here writes except the withdrawal form, and
- * that only records what the provider's dashboard already shows. Access is the
+ * Reports, never corrects: nothing here writes except the withdrawal form, which
+ * only records what the provider's dashboard already shows, and "tandai selesai"
+ * on a webhook event, which only records that an Admin dealt with it (who, when,
+ * a note; PKS pemenuhan 05). Access is the
  * /admin layout's ADMIN check, which gives anyone else a 404.
  * Runbook: docs/runbooks/payment-reconciliation.md.
  */
@@ -368,6 +371,7 @@ export default async function AdminReconciliationPage() {
                   <th className={th}>Penyedia</th>
                   <th className={th}>Jenis</th>
                   <th className={th}>ID event penyedia</th>
+                  <th className={th}>Tandai selesai</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -380,6 +384,9 @@ export default async function AdminReconciliationPage() {
                       <span className="text-xs text-gray-400">({event.outcome})</span>
                     </td>
                     <td className={td}>{event.providerEventId}</td>
+                    <td className={td}>
+                      <AdminResolveWebhookForm eventId={event.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

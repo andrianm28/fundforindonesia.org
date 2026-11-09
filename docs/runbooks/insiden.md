@@ -49,14 +49,21 @@ Gejala: pembayaran sudah terjadi di dashboard penyedia tetapi Donation tidak ber
 
 ## Notifikasi gagal
 
-Keadaan sekarang (sebelum tiket 05, `.scratch/pks-pemenuhan/issues/05-antrean-notifikasi-gagal.md`, selesai): **kegagalan email hanya dicatat di log server**, belum ada antrean, layar, atau percobaan ulang. Keputusan bisnisnya tetap jalan: Verifier tetap memutuskan, status Payout dan Refund tetap berubah, notifikasi dalam aplikasi tetap dibuat; hanya emailnya yang hilang.
+Email yang ditolak penyedia email **masuk antrean** (tabel `FailedNotification`, PKS Pasal 8(2)); tidak lagi hanya dicatat di log. Keputusan bisnisnya tetap jalan: Verifier tetap memutuskan, status Payout dan Refund tetap berubah, notifikasi dalam aplikasi tetap dibuat; yang tertunda hanya emailnya, dan antrean mengirimkannya setelah masalahnya beres.
 
-Yang bisa dilakukan sekarang:
+Cara kerjanya:
 
-1. Minta developer mencari di log aplikasi (dan GlitchTip bila `SENTRY_DSN` diisi) event `mail_send_failed`, `mail_not_configured`, `mail_compose_failed`, atau `mail_skipped`. Setiap event memuat id rekaman yang bersangkutan.
-2. `mail_not_configured` berarti `MAIL_PROVIDER` atau `SMTP_*` / `MAIL_FROM` belum lengkap di produksi: perbaikan konfigurasi oleh owner ([konfigurasi-penyedia.md](../konfigurasi-penyedia.md)).
-3. Untuk penerima yang pentingnya mendesak (mis. Payout selesai, Suspension), hubungi lewat kontak lain di luar platform. Email tidak dikirim ulang otomatis.
-4. Setelah tiket 05 selesai, bagian ini diganti dengan prosedur antrean notifikasi gagal.
+- Job terjadwal (`POST /api/internal/jobs/run`, tiap 15 menit) mencoba ulang tiap baris yang sudah jatuh tempo. Jeda sesudah kegagalan ke-1 sampai ke-4: 5 menit, 15 menit, 1 jam, 4 jam. Kegagalan ke-5 menandai baris **gagal permanen**; sesudah itu hanya terkirim bila Admin menekan kirim ulang.
+- Isi email dan alamat penerima disimpan terenkripsi (kunci `FIELD_*`, sama dengan kolom kontak lain) dan tidak pernah ditampilkan. Layar hanya memuat jenis, ID rujukan (mis. `donationId`), jumlah percobaan, dan galat terakhir. Email berisi tautan kredensial (`password_reset`, `email_verification`) sengaja **tidak** diantrekan: pemiliknya tinggal meminta tautan baru, dan tautan basi tidak boleh mengendap di database.
+- Bila sebuah email gagal permanen, atau 10 baris atau lebih menunggu, atau ada webhook atau charge tanpa Payment yang belum ditinjau dalam 24 jam terakhir, semua Admin menerima email ringkas. Satu jenis paling banyak sekali per jam. Isinya hanya hitungan dan tautan ke layar, tanpa nama atau alamat.
+
+Yang dilakukan Admin:
+
+1. Buka **Notifikasi Gagal** (`/admin/notifikasi-gagal`). Baris diurutkan dari yang tertua; kolom **Rujukan** memuat ID yang dipakai mencari orangnya.
+2. Baca **Galat terakhir**. `mail_not_configured` berarti `MAIL_PROVIDER` atau `SMTP_*` / `MAIL_FROM` belum lengkap di produksi: perbaikan konfigurasi oleh owner ([konfigurasi-penyedia.md](../konfigurasi-penyedia.md)). Penolakan yang menyebut kotak surat penuh atau tidak ada berarti alamat penerima bermasalah, bukan platform.
+3. Setelah penyebabnya diperbaiki, tekan **Kirim ulang** pada baris yang gagal permanen (atau yang masih menunggu, bila tidak mau menunggu jadwal). Hasilnya "Terkirim" atau "Penyedia email menolak lagi"; dalam kasus kedua baris tetap di antrean dengan galat terbaru. Dua Admin yang menekan bersamaan hanya mengirim satu email.
+4. Untuk penerima yang pentingnya mendesak (mis. Payout selesai, Suspension) dan baris yang tetap gagal, hubungi lewat kontak lain di luar platform.
+5. Log server tetap memuat `mail_send_failed`, `mail_not_configured`, `mail_retry_failed` (dengan `notificationId`). `mail_compose_failed` dan `mail_skipped` berarti email tidak pernah tersusun (data kurang), jadi **tidak** ada di antrean; carilah di log (dan GlitchTip bila `SENTRY_DSN` diisi). `mail_queue_write_failed` berarti kegagalan kirimnya sendiri tidak bisa dicatat ke antrean (database atau kunci `FIELD_*` bermasalah); email itu hanya ada di log dan perlu dikirim manual.
 
 ## Restore (data hilang atau rusak)
 

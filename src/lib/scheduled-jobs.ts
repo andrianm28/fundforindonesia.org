@@ -2,6 +2,7 @@ import { releaseMaturedEscrow, type ReleaseSweepResult } from '@/lib/money/escro
 import { sendCampaignDeadlineReminders, sendKindAuthorisationExpiryWarnings, type ReminderSweepResult } from '@/lib/reminders';
 import { sweepStuckLateSettlementRefunds, type RefundSweepResult } from '@/lib/volunteer/refund-sweep';
 import { anonymiseExpiredCompanies, type CompanyRetentionResult } from '@/lib/tim-csr';
+import { runNotificationQueuePhase, type NotificationQueuePhaseResult } from '@/lib/failed-notifications';
 import { prisma } from '@/lib/prisma';
 import type { Mailer } from '@/lib/mail';
 
@@ -11,6 +12,7 @@ export interface ScheduledJobsResult {
   kindAuthorisationExpiryWarnings: ReminderSweepResult;
   lateSettlementRefunds: RefundSweepResult;
   companyRetention: CompanyRetentionResult;
+  notificationQueue: NotificationQueuePhaseResult;
 }
 
 const FALLBACK_RELEASE_SWEEP: ReleaseSweepResult = { releasedCount: 0, consideredCount: 0 };
@@ -22,11 +24,17 @@ const FALLBACK_REFUND_SWEEP: RefundSweepResult = {
   failedCount: 0,
 };
 const FALLBACK_RETENTION_SWEEP: CompanyRetentionResult = { consideredCount: 0, anonymisedCount: 0 };
+const FALLBACK_NOTIFICATION_QUEUE: NotificationQueuePhaseResult = {
+  attemptedCount: 0,
+  sentCount: 0,
+  failedCount: 0,
+  alertsSent: [],
+};
 const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consideredCount: 0 };
 
 /**
  * The single scheduled entry point (ticket 20; spec.md "Notification and
- * scheduling"). Five phases, each already bounded and idempotent on its
+ * scheduling"). Six phases, each already bounded and idempotent on its
  * own:
  *
  * 1. Releases every matured Escrow Hold into Campaign Balance / Trip
@@ -46,6 +54,12 @@ const FALLBACK_REMINDER_SWEEP: ReminderSweepResult = { attemptedCount: 0, consid
  * 5. Anonymises Tim CSR companies two years after their last activity
  *    (anonymiseExpiredCompanies, ./tim-csr.ts; ticket E9/01 tahap 2).
  *    Idempotent; a company is touched once.
+ *
+ * 6. Retries the failed notification queue with backoff and emails the Admins,
+ *    at most once an hour per kind, when notifications are DEAD or webhook
+ *    events and charges wait for review (runNotificationQueuePhase,
+ *    ./failed-notifications.ts; PKS pemenuhan 05). Rows are claimed atomically,
+ *    so overlapping runs never send one twice.
  *
  * WHO ACTUALLY CALLS THIS, stated here because this file claimed otherwise
  * for a long time. As of ticket 45 exactly one thing does: the route
@@ -133,6 +147,9 @@ export async function runScheduledJobsReport(now: Date = new Date(), mailer?: Ma
   const companyRetention = await phase('companyRetention', FALLBACK_RETENTION_SWEEP, () =>
     anonymiseExpiredCompanies(prisma, now),
   );
+  const notificationQueue = await phase('notificationQueue', FALLBACK_NOTIFICATION_QUEUE, () =>
+    runNotificationQueuePhase(now, mailer),
+  );
 
   return {
     ok: failedPhases.length === 0,
@@ -143,6 +160,7 @@ export async function runScheduledJobsReport(now: Date = new Date(), mailer?: Ma
       kindAuthorisationExpiryWarnings,
       lateSettlementRefunds,
       companyRetention,
+      notificationQueue,
     },
   };
 }
