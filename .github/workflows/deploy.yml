@@ -220,6 +220,15 @@ jobs:
           fi
           exit "$rc"
 
+      # From outside, through nginx and TLS: public pages answer and production
+      # reports this commit. Read-only; a failure here means the deploy went
+      # through but visitors may not see it working.
+      - name: Smoke test production from outside
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+          PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://fundforindonesia.org' }}
+        run: ci/post-deploy-smoke.sh "$SHA"
+
       - name: Remove the SSH key
         if: always()
         run: rm -rf "$RUNNER_TEMP/ssh"
