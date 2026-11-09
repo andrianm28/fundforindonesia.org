@@ -232,7 +232,7 @@ describe('uploadDocument and readDocument against a real directory', () => {
     expect(row.storagePath).toMatch(/^[0-9a-f]{2}\/[0-9a-f]{64}$/);
     expect(row).toMatchObject({ uploadedById: 'fundraiser', campaignId: 'c1', partnerOrganisationId: null });
     const written = join(root, row.storagePath as string);
-    expect(new Uint8Array(await readFile(written))).toEqual(PDF);
+    expect((await readFile(written)).subarray(0, 8).toString("latin1")).toBe("FFIDOC1\0"); // sealed at rest, see document-encryption.test.ts
     expect((await stat(written)).mode & 0o077).toBe(0);
 
     const mine = await readDocument(db.prisma as never, { documentId: row.id as string, viewer: viewer('fundraiser'), root });

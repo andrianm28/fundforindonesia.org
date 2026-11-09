@@ -5,6 +5,8 @@ import { Assignment, type Kind, type PrismaClient } from "@/generated/prisma/cli
 import { hasAssignment } from "./assignment";
 import { sniffImageType } from "./uploads";
 import { DOCUMENT_UPLOADABLE_STATUSES } from "./document-uploadable-statuses";
+import { requireFieldKeys } from "./contact-fields";
+import { openDocumentBytes, sealDocumentBytes } from "./document-encryption";
 
 export { DOCUMENT_UPLOADABLE_STATUSES };
 
@@ -27,6 +29,11 @@ export { DOCUMENT_UPLOADABLE_STATUSES };
  *     checking organisations is the Verifier's own queue) and the
  *     organisation's linked Fundraiser account.
  * Everyone else gets the same 404 as a document that does not exist.
+ *
+ * The bytes are sealed at rest (ticket 14, `document-encryption.ts`): AES-256-GCM
+ * under the field-encryption key, opened again only here, behind the ACL. A
+ * file with no header predates that and is served as is; a sealed file that
+ * fails verification throws, so the route answers 500 and never serves garbage.
  *
  * Documents are never deleted: a rejected submission's papers are still
  * someone's identity documents and are kept, just never public (decision 03).
@@ -288,11 +295,21 @@ export async function uploadDocument(
   const contentType = validateDocumentFile(params.file);
   const owner = await authorise(prisma, params.actor, params.target);
 
+  // Never fall back to plaintext: without a key the document is not stored.
+  let keys: ReturnType<typeof requireFieldKeys>;
+  try {
+    keys = requireFieldKeys();
+  } catch (error) {
+    console.error("Document upload refused: field encryption is not configured", error);
+    throw new DocumentRefusedError("Penyimpanan dokumen belum dikonfigurasi.", 503);
+  }
+
   const storagePath = newStoragePath();
   const full = absoluteStoragePath(root, storagePath)!;
+  const sealed = sealDocumentBytes(keys, storagePath, params.file.bytes);
   await mkdir(dirname(full), { recursive: true, mode: 0o700 });
   try {
-    await writeFile(full, params.file.bytes, { mode: 0o600, flag: "wx" });
+    await writeFile(full, sealed, { mode: 0o600, flag: "wx" });
   } catch (error) {
     // A half-written file is ours to remove; an existing one (EEXIST) is not.
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") await unlink(full).catch(() => undefined);
@@ -346,10 +363,18 @@ export async function readDocument(
   if (!root) return null;
   const full = absoluteStoragePath(root, document.storagePath);
   if (!full) return null;
+  let stored: Buffer;
   try {
-    return { id: document.id, contentType: document.contentType, bytes: await readFile(full) };
+    stored = await readFile(full);
   } catch {
     console.error(`Document ${document.id}: stored file is missing or unreadable`);
     return null;
   }
+  // Throws DocumentIntegrityError for a sealed file that does not verify (or a
+  // missing key): the caller answers 500, never the bytes.
+  return {
+    id: document.id,
+    contentType: document.contentType,
+    bytes: openDocumentBytes(requireFieldKeys(), document.storagePath, stored),
+  };
 }
