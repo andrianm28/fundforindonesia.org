@@ -29,6 +29,10 @@ describe.skipIf(!DATABASE_URL)('MFA TOTP -- against real Postgres (pks-pemenuhan
     console.warn('[mfa] TEST_DATABASE_URL is not set: these tests are being SKIPPED, not passing.');
   }
 
+  // Backup codes are bcrypt at the production cost (ten per enrolment); under
+  // a loaded CPU that outgrows the 5s default.
+  vi.setConfig({ testTimeout: 60_000 });
+
   const databaseName = `mfa_${process.pid}`;
   let prisma: PrismaClient;
   let mfa: typeof import('@/lib/mfa');
