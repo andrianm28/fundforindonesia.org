@@ -1,5 +1,6 @@
 import nodemailer, { type SendMailOptions } from 'nodemailer';
 import type { Mailer, MailMessage } from './types';
+import { assertDeliverable } from './blocked-recipients';
 
 export type SmtpConfig = {
   host: string;
@@ -54,6 +55,8 @@ export class SmtpMailer implements Mailer {
   }
 
   async send(message: MailMessage): Promise<void> {
+    // A blocked domain never reaches the relay (./blocked-recipients.ts).
+    assertDeliverable(message);
     await this.transport.sendMail({
       from: this.from,
       to: message.to,

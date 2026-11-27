@@ -1,0 +1,64 @@
+import { createHash } from 'node:crypto';
+import type { MailMessage } from './types';
+
+/**
+ * Domains the platform must never send email to, whatever the database or a
+ * caller says. Stored as SHA-256 hashes of the lowercase domain so the names
+ * themselves never appear in this public repository (owner rule, 2026-11-27).
+ * A domain blocks all of its subdomains too.
+ *
+ * To add one: `printf %s example.com | sha256sum` and append the hex here,
+ * or list it in plain text in MAIL_BLOCKED_DOMAINS on the host.
+ */
+const BUILT_IN_BLOCKED_DOMAIN_HASHES: ReadonlySet<string> = new Set([
+  '91aee4f93832e8f1447794d379421e565a97b50814cd667e904cf6810e436ca5',
+]);
+
+/** Raised when a message would reach a blocked domain; the address is never in the text. */
+export class BlockedRecipientError extends Error {
+  constructor() {
+    super('The recipient is on a blocked domain; the message was not sent.');
+    this.name = 'BlockedRecipientError';
+  }
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function envBlockedDomains(): string[] {
+  return (process.env.MAIL_BLOCKED_DOMAINS ?? '')
+    .split(',')
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean);
+}
+
+/** The domain and each parent of it with at least two labels: a.b.c -> a.b.c, b.c. */
+function domainAndParents(domain: string): string[] {
+  const labels = domain.split('.');
+  const out: string[] = [];
+  for (let i = 0; i < labels.length - 1; i++) out.push(labels.slice(i).join('.'));
+  return out;
+}
+
+/** Whether any address in `field` (one address, a display name, or a list) is on a blocked domain. */
+export function blockedDomainIn(
+  field: string,
+  hashes: ReadonlySet<string> = BUILT_IN_BLOCKED_DOMAIN_HASHES,
+): boolean {
+  const plain = new Set(envBlockedDomains());
+  const domains = field.toLowerCase().match(/@([a-z0-9.-]+)/g) ?? [];
+  return domains.some((at) =>
+    domainAndParents(at.slice(1).replace(/\.+$/, '')).some((d) => plain.has(d) || hashes.has(sha256(d))),
+  );
+}
+
+/** Throws BlockedRecipientError when To or Reply-To reaches a blocked domain. */
+export function assertDeliverable(
+  message: Pick<MailMessage, 'to' | 'replyTo'>,
+  hashes: ReadonlySet<string> = BUILT_IN_BLOCKED_DOMAIN_HASHES,
+): void {
+  if (blockedDomainIn(message.to, hashes) || (message.replyTo && blockedDomainIn(message.replyTo, hashes))) {
+    throw new BlockedRecipientError();
+  }
+}
