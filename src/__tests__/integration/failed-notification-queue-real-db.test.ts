@@ -254,6 +254,19 @@ describe.skipIf(!DATABASE_URL)('failed notification queue -- against real Postgr
       expect(result.attemptedCount).toBe(0);
     });
 
+    it('marks a row DEAD at once when its recipient is now on a blocked domain, without retrying it', async () => {
+      const { BlockedRecipientError } = await import('@/lib/mail');
+      const row = await enqueue();
+      const blocked: Mailer = { name: 'test', send: async () => { throw new BlockedRecipientError(); } };
+      const now = new Date(row.nextAttemptAt.getTime() + 1);
+
+      await queue.retryDueNotifications(now, blocked);
+
+      const dead = await prisma.failedNotification.findUniqueOrThrow({ where: { id: row.id } });
+      expect(dead).toMatchObject({ status: 'DEAD', attempts: queue.MAX_NOTIFICATION_ATTEMPTS });
+      expect((await queue.retryDueNotifications(new Date(now.getTime() + 1000 * HOUR), blocked)).attemptedCount).toBe(0);
+    });
+
     it('two runners at once send each row once', async () => {
       const rows = [];
       for (let i = 0; i < 6; i++) rows.push(await enqueue({ ...message, subject: `s${i}` }, 'receipt', { donationId: `d${i}` }));

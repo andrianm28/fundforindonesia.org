@@ -31,6 +31,23 @@ describe('blockedDomainIn', () => {
     expect(blockedDomainIn('Name <x@fine.example>, Other <y@blocked.example>', HASHES)).toBe(true);
   });
 
+  it('blocks a Unicode domain by its punycode (ASCII) form, as the relay would send it', () => {
+    const idn = new Set([sha('xn--bcher-kva.example')]);
+    expect(blockedDomainIn('a@bücher.example', idn)).toBe(true);
+    expect(blockedDomainIn('a@BÜCHER.example', idn)).toBe(true);
+  });
+
+  it('reads a domain with a fullwidth or ideographic dot as the same domain', () => {
+    expect(blockedDomainIn('a@blocked\uFF0Eexample', HASHES)).toBe(true);
+    expect(blockedDomainIn('a@blocked\u3002example', HASHES)).toBe(true);
+  });
+
+  it('normalises MAIL_BLOCKED_DOMAINS entries written with a trailing dot or a wildcard', () => {
+    process.env.MAIL_BLOCKED_DOMAINS = 'one.example., *.two.example';
+    expect(blockedDomainIn('a@one.example', new Set())).toBe(true);
+    expect(blockedDomainIn('a@x.two.example', new Set())).toBe(true);
+  });
+
   it('also reads plain domains from MAIL_BLOCKED_DOMAINS', () => {
     process.env.MAIL_BLOCKED_DOMAINS = ' other.example , ';
     expect(blockedDomainIn('a@sub.other.example', new Set())).toBe(true);

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { domainToASCII } from 'node:url';
 import type { MailMessage } from './types';
 
 /**
@@ -26,10 +27,20 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+/**
+ * The ASCII (punycode) form the relay sends, lowercase, without a trailing
+ * dot. Fullwidth and ideographic dots count as dots, as they do in IDNA.
+ * Returns '' for something that is not a domain.
+ */
+function normaliseDomain(raw: string): string {
+  const dotted = raw.trim().replace(/[\u3002\uFF0E\uFF61]/g, '.').replace(/\.+$/, '');
+  return domainToASCII(dotted).toLowerCase();
+}
+
 function envBlockedDomains(): string[] {
   return (process.env.MAIL_BLOCKED_DOMAINS ?? '')
     .split(',')
-    .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
+    .map((d) => normaliseDomain(d.trim().replace(/^@/, '').replace(/^\*\./, '')))
     .filter(Boolean);
 }
 
@@ -47,10 +58,9 @@ export function blockedDomainIn(
   hashes: ReadonlySet<string> = BUILT_IN_BLOCKED_DOMAIN_HASHES,
 ): boolean {
   const plain = new Set(envBlockedDomains());
-  const domains = field.toLowerCase().match(/@([a-z0-9.-]+)/g) ?? [];
-  return domains.some((at) =>
-    domainAndParents(at.slice(1).replace(/\.+$/, '')).some((d) => plain.has(d) || hashes.has(sha256(d))),
-  );
+  // Everything after an @ up to a separator, so a Unicode domain is read whole.
+  const domains = [...field.matchAll(/@([^\s<>,;"'()\[\]]+)/g)].map((m) => normaliseDomain(m[1]));
+  return domains.some((domain) => domainAndParents(domain).some((d) => plain.has(d) || hashes.has(sha256(d))));
 }
 
 /** Throws BlockedRecipientError when To or Reply-To reaches a blocked domain. */
