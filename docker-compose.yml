@@ -77,6 +77,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_BLOCKED_DOMAINS: ${MAIL_BLOCKED_DOMAINS:-}
       # The partnership team's mailbox, for Partnership Inquiry notifications.
       # No default: see .env.example.
       PARTNERSHIP_TEAM_EMAIL: ${PARTNERSHIP_TEAM_EMAIL:-}

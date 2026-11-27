@@ -134,6 +134,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_BLOCKED_DOMAINS: ${MAIL_BLOCKED_DOMAINS:-}
       PARTNERSHIP_TEAM_EMAIL: ${PARTNERSHIP_TEAM_EMAIL:-}
       # Donor-requested Refund limits (ticket E3/04). The values live only in the
       # server's .env, never in this repo; unset, the feature stays off.
