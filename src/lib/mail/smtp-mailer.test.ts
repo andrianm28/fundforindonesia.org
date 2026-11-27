@@ -99,3 +99,38 @@ describe('SmtpMailer', () => {
     expect(calls.mails[1]).not.toHaveProperty('replyTo');
   });
 });
+
+describe('SmtpMailer refuses blocked recipient domains', () => {
+  it.each([
+    'team@eliteacademy.id',
+    'TEAM@EliteAcademy.ID',
+    'Elite Academy <team@eliteacademy.id>',
+    'someone@mail.eliteacademy.id',
+  ])('never hands %s to the relay', async (to) => {
+    const { calls, createTransport } = recordingTransport();
+
+    await new SmtpMailer(CONFIG, createTransport).send({ ...MESSAGE, to });
+
+    expect(calls.mails).toEqual([]);
+  });
+
+  it('drops only the blocked address from a list and still sends to the rest', async () => {
+    const { calls, createTransport } = recordingTransport();
+
+    await new SmtpMailer(CONFIG, createTransport).send({
+      ...MESSAGE,
+      to: 'fundraiser@example.test, team@eliteacademy.id',
+    });
+
+    expect(calls.mails).toHaveLength(1);
+    expect(calls.mails[0]).toMatchObject({ to: 'fundraiser@example.test' });
+  });
+
+  it('still sends to a domain that merely contains the blocked name', async () => {
+    const { calls, createTransport } = recordingTransport();
+
+    await new SmtpMailer(CONFIG, createTransport).send({ ...MESSAGE, to: 'a@noteliteacademy.id' });
+
+    expect(calls.mails).toHaveLength(1);
+  });
+});
