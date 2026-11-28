@@ -6,7 +6,11 @@
 //   Campaign_beneficiaryCount_positive) keep their expression only; Drizzle has
 //   no NOT VALID and never writes this schema anyway;
 // - enum array columns (`kinds`, `requestKinds`) are typed with their enum;
-// - timestamps use mode 'date' so rows carry Date objects, as Prisma's did.
+// - timestamps use mode 'date' so rows carry Date objects, as Prisma's did;
+// - index operator classes are left to Postgres' defaults (pull guessed wrong
+//   ones), except the trigram index on Campaign.title;
+// - SQL defaults and check bodies are written so the template literal keeps
+//   their backslashes, and Disbursement_legacy keeps its old pkey name.
 // Prisma owns migrations until ticket 09: never `drizzle-kit push`/`generate`.
 // src/db/schema-parity.test.ts proves this file matches the migrated database.
 import { pgTable, varchar, timestamp, text, integer, index, foreignKey, boolean, uniqueIndex, jsonb, check, doublePrecision, primaryKey, pgEnum } from "drizzle-orm/pg-core"
@@ -76,11 +80,11 @@ export const donation = pgTable("Donation", {
 	trafficSource: varchar({ length: 40 }),
 	anonymisedAt: timestamp({ precision: 3, mode: 'date' }),
 }, (table) => [
-	index("Donation_campaignId_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops")),
-	index("Donation_createdAt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamp_ops")),
-	index("Donation_donorId_idx").using("btree", table.donorId.asc().nullsLast().op("text_ops")),
-	index("Donation_guestEmailHmac_idx").using("btree", table.guestEmailHmac.asc().nullsLast().op("text_ops")),
-	index("Donation_paymentStatus_idx").using("btree", table.paymentStatus.asc().nullsLast().op("text_ops")),
+	index("Donation_campaignId_idx").using("btree", table.campaignId.asc().nullsLast()),
+	index("Donation_createdAt_idx").using("btree", table.createdAt.asc().nullsLast()),
+	index("Donation_donorId_idx").using("btree", table.donorId.asc().nullsLast()),
+	index("Donation_guestEmailHmac_idx").using("btree", table.guestEmailHmac.asc().nullsLast()),
+	index("Donation_paymentStatus_idx").using("btree", table.paymentStatus.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -101,8 +105,8 @@ export const campaignUpdate = pgTable("CampaignUpdate", {
 	campaignId: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("CampaignUpdate_campaignId_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops")),
-	index("CampaignUpdate_createdAt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamp_ops")),
+	index("CampaignUpdate_campaignId_idx").using("btree", table.campaignId.asc().nullsLast()),
+	index("CampaignUpdate_createdAt_idx").using("btree", table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -120,9 +124,9 @@ export const notification = pgTable("Notification", {
 	link: text(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("Notification_createdAt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamp_ops")),
-	index("Notification_userId_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
-	index("Notification_userId_isRead_idx").using("btree", table.userId.asc().nullsLast().op("text_ops"), table.isRead.asc().nullsLast().op("text_ops")),
+	index("Notification_createdAt_idx").using("btree", table.createdAt.asc().nullsLast()),
+	index("Notification_userId_idx").using("btree", table.userId.asc().nullsLast()),
+	index("Notification_userId_isRead_idx").using("btree", table.userId.asc().nullsLast(), table.isRead.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -131,14 +135,16 @@ export const notification = pgTable("Notification", {
 ]);
 
 export const disbursementLegacy = pgTable("Disbursement_legacy", {
-	id: text().primaryKey().notNull(),
+	// The table was renamed; its primary key kept the old name.
+	id: text().notNull(),
 	amount: integer().notNull(),
 	description: text().notNull(),
 	proofImage: text(),
 	campaignId: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("Disbursement_campaignId_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops")),
+	primaryKey({ columns: [table.id], name: "Disbursement_pkey" }),
+	index("Disbursement_campaignId_idx").using("btree", table.campaignId.asc().nullsLast()),
 ]);
 
 export const category = pgTable("Category", {
@@ -148,10 +154,10 @@ export const category = pgTable("Category", {
 	icon: text().notNull(),
 	order: integer().default(0).notNull(),
 }, (table) => [
-	uniqueIndex("Category_name_key").using("btree", table.name.asc().nullsLast().op("text_ops")),
-	index("Category_order_idx").using("btree", table.order.asc().nullsLast().op("int4_ops")),
-	index("Category_slug_idx").using("btree", table.slug.asc().nullsLast().op("text_ops")),
-	uniqueIndex("Category_slug_key").using("btree", table.slug.asc().nullsLast().op("text_ops")),
+	uniqueIndex("Category_name_key").using("btree", table.name.asc().nullsLast()),
+	index("Category_order_idx").using("btree", table.order.asc().nullsLast()),
+	index("Category_slug_idx").using("btree", table.slug.asc().nullsLast()),
+	uniqueIndex("Category_slug_key").using("btree", table.slug.asc().nullsLast()),
 ]);
 
 export const account = pgTable("Account", {
@@ -168,8 +174,8 @@ export const account = pgTable("Account", {
 	idToken: text("id_token"),
 	sessionState: text("session_state"),
 }, (table) => [
-	uniqueIndex("Account_provider_providerAccountId_key").using("btree", table.provider.asc().nullsLast().op("text_ops"), table.providerAccountId.asc().nullsLast().op("text_ops")),
-	index("Account_userId_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("Account_provider_providerAccountId_key").using("btree", table.provider.asc().nullsLast(), table.providerAccountId.asc().nullsLast()),
+	index("Account_userId_idx").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -190,10 +196,10 @@ export const webhookEvent = pgTable("WebhookEvent", {
 	resolvedAt: timestamp({ precision: 3, mode: 'date' }),
 	resolvedById: text(),
 }, (table) => [
-	index("WebhookEvent_outcome_idx").using("btree", table.outcome.asc().nullsLast().op("text_ops")),
-	uniqueIndex("WebhookEvent_provider_merchantEntity_providerEventId_key").using("btree", table.provider.asc().nullsLast().op("text_ops"), table.merchantEntity.asc().nullsLast().op("enum_ops"), table.providerEventId.asc().nullsLast().op("text_ops")),
-	index("WebhookEvent_provider_receivedAt_idx").using("btree", table.provider.asc().nullsLast().op("timestamp_ops"), table.receivedAt.asc().nullsLast().op("text_ops")),
-	index("WebhookEvent_resolvedAt_idx").using("btree", table.resolvedAt.asc().nullsLast().op("timestamp_ops")),
+	index("WebhookEvent_outcome_idx").using("btree", table.outcome.asc().nullsLast()),
+	uniqueIndex("WebhookEvent_provider_merchantEntity_providerEventId_key").using("btree", table.provider.asc().nullsLast(), table.merchantEntity.asc().nullsLast(), table.providerEventId.asc().nullsLast()),
+	index("WebhookEvent_provider_receivedAt_idx").using("btree", table.provider.asc().nullsLast(), table.receivedAt.asc().nullsLast()),
+	index("WebhookEvent_resolvedAt_idx").using("btree", table.resolvedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.resolvedById],
 			foreignColumns: [user.id],
@@ -211,7 +217,7 @@ export const bankAccount = pgTable("BankAccount", {
 	accountNumberCiphertext: text().notNull(),
 	accountNumberKeyId: text().notNull(),
 }, (table) => [
-	index("BankAccount_ownerId_idx").using("btree", table.ownerId.asc().nullsLast().op("text_ops")),
+	index("BankAccount_ownerId_idx").using("btree", table.ownerId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.ownerId],
 			foreignColumns: [user.id],
@@ -245,9 +251,9 @@ export const refund = pgTable("Refund", {
 	failureReason: text(),
 	sandbox: boolean().default(false).notNull(),
 }, (table) => [
-	index("Refund_paymentId_idx").using("btree", table.paymentId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("Refund_providerRef_key").using("btree", table.providerRef.asc().nullsLast().op("text_ops")),
-	index("Refund_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
+	index("Refund_paymentId_idx").using("btree", table.paymentId.asc().nullsLast()),
+	uniqueIndex("Refund_providerRef_key").using("btree", table.providerRef.asc().nullsLast()),
+	index("Refund_status_idx").using("btree", table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.paymentId],
 			foreignColumns: [payment.id],
@@ -307,14 +313,14 @@ export const payment = pgTable("Payment", {
 	sandbox: boolean().default(false).notNull(),
 	merchantEntity: merchantEntity().default('YAYASAN').notNull(),
 }, (table) => [
-	uniqueIndex("Payment_donationId_paid_key").using("btree", table.donationId.asc().nullsLast().op("text_ops")).where(sql`(status = 'PAID'::"PaymentStatus")`),
-	index("Payment_donationId_status_idx").using("btree", table.donationId.asc().nullsLast().op("text_ops"), table.status.asc().nullsLast().op("text_ops")),
-	index("Payment_escrowReleaseAt_escrowReleasedAt_idx").using("btree", table.escrowReleaseAt.asc().nullsLast().op("timestamp_ops"), table.escrowReleasedAt.asc().nullsLast().op("timestamp_ops")),
-	index("Payment_escrowSweepDeferredAt_escrowReleaseAt_id_idx").using("btree", table.escrowSweepDeferredAt.asc().nullsLast().op("timestamp_ops"), table.escrowReleaseAt.asc().nullsLast().op("timestamp_ops"), table.id.asc().nullsLast().op("timestamp_ops")),
-	uniqueIndex("Payment_providerRef_key").using("btree", table.providerRef.asc().nullsLast().op("text_ops")),
-	index("Payment_provider_status_idx").using("btree", table.provider.asc().nullsLast().op("enum_ops"), table.status.asc().nullsLast().op("enum_ops")),
-	uniqueIndex("Payment_registrationId_key").using("btree", table.registrationId.asc().nullsLast().op("text_ops")),
-	index("Payment_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
+	uniqueIndex("Payment_donationId_paid_key").using("btree", table.donationId.asc().nullsLast()).where(sql`(status = 'PAID'::"PaymentStatus")`),
+	index("Payment_donationId_status_idx").using("btree", table.donationId.asc().nullsLast(), table.status.asc().nullsLast()),
+	index("Payment_escrowReleaseAt_escrowReleasedAt_idx").using("btree", table.escrowReleaseAt.asc().nullsLast(), table.escrowReleasedAt.asc().nullsLast()),
+	index("Payment_escrowSweepDeferredAt_escrowReleaseAt_id_idx").using("btree", table.escrowSweepDeferredAt.asc().nullsLast(), table.escrowReleaseAt.asc().nullsLast(), table.id.asc().nullsLast()),
+	uniqueIndex("Payment_providerRef_key").using("btree", table.providerRef.asc().nullsLast()),
+	index("Payment_provider_status_idx").using("btree", table.provider.asc().nullsLast(), table.status.asc().nullsLast()),
+	uniqueIndex("Payment_registrationId_key").using("btree", table.registrationId.asc().nullsLast()),
+	index("Payment_status_idx").using("btree", table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.donationId],
 			foreignColumns: [donation.id],
@@ -351,22 +357,22 @@ export const ledgerEntry = pgTable("LedgerEntry", {
 	collectingEntityId: text(),
 	actorId: text(),
 }, (table) => [
-	index("LedgerEntry_account_campaignId_idx").using("btree", table.account.asc().nullsLast().op("text_ops"), table.campaignId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_account_merchantEntity_provider_idx").using("btree", table.account.asc().nullsLast().op("enum_ops"), table.merchantEntity.asc().nullsLast().op("text_ops"), table.provider.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_account_programId_idx").using("btree", table.account.asc().nullsLast().op("enum_ops"), table.programId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_account_provider_idx").using("btree", table.account.asc().nullsLast().op("text_ops"), table.provider.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_account_volunteerTripId_idx").using("btree", table.account.asc().nullsLast().op("text_ops"), table.volunteerTripId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_actorId_idx").using("btree", table.actorId.asc().nullsLast().op("text_ops")).where(sql`("actorId" IS NOT NULL)`),
-	index("LedgerEntry_campaignId_createdAt_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_campaignTransferId_idx").using("btree", table.campaignTransferId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_collectingEntityId_idx").using("btree", table.collectingEntityId.asc().nullsLast().op("text_ops")).where(sql`("collectingEntityId" IS NOT NULL)`),
-	index("LedgerEntry_manualContributionId_idx").using("btree", table.manualContributionId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_paymentId_idx").using("btree", table.paymentId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_payoutId_idx").using("btree", table.payoutId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_providerWithdrawalId_idx").using("btree", table.providerWithdrawalId.asc().nullsLast().op("text_ops")),
-	index("LedgerEntry_refundId_idx").using("btree", table.refundId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("LedgerEntry_transactionId_claim_key").using("btree", table.transactionId.asc().nullsLast().op("text_ops")).where(sql`("legIndex" = 0)`),
-	index("LedgerEntry_transactionId_idx").using("btree", table.transactionId.asc().nullsLast().op("text_ops")),
+	index("LedgerEntry_account_campaignId_idx").using("btree", table.account.asc().nullsLast(), table.campaignId.asc().nullsLast()),
+	index("LedgerEntry_account_merchantEntity_provider_idx").using("btree", table.account.asc().nullsLast(), table.merchantEntity.asc().nullsLast(), table.provider.asc().nullsLast()),
+	index("LedgerEntry_account_programId_idx").using("btree", table.account.asc().nullsLast(), table.programId.asc().nullsLast()),
+	index("LedgerEntry_account_provider_idx").using("btree", table.account.asc().nullsLast(), table.provider.asc().nullsLast()),
+	index("LedgerEntry_account_volunteerTripId_idx").using("btree", table.account.asc().nullsLast(), table.volunteerTripId.asc().nullsLast()),
+	index("LedgerEntry_actorId_idx").using("btree", table.actorId.asc().nullsLast()).where(sql`("actorId" IS NOT NULL)`),
+	index("LedgerEntry_campaignId_createdAt_idx").using("btree", table.campaignId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
+	index("LedgerEntry_campaignTransferId_idx").using("btree", table.campaignTransferId.asc().nullsLast()),
+	index("LedgerEntry_collectingEntityId_idx").using("btree", table.collectingEntityId.asc().nullsLast()).where(sql`("collectingEntityId" IS NOT NULL)`),
+	index("LedgerEntry_manualContributionId_idx").using("btree", table.manualContributionId.asc().nullsLast()),
+	index("LedgerEntry_paymentId_idx").using("btree", table.paymentId.asc().nullsLast()),
+	index("LedgerEntry_payoutId_idx").using("btree", table.payoutId.asc().nullsLast()),
+	index("LedgerEntry_providerWithdrawalId_idx").using("btree", table.providerWithdrawalId.asc().nullsLast()),
+	index("LedgerEntry_refundId_idx").using("btree", table.refundId.asc().nullsLast()),
+	uniqueIndex("LedgerEntry_transactionId_claim_key").using("btree", table.transactionId.asc().nullsLast()).where(sql`("legIndex" = 0)`),
+	index("LedgerEntry_transactionId_idx").using("btree", table.transactionId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -427,8 +433,8 @@ export const volunteerBatch = pgTable("VolunteerBatch", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("VolunteerBatch_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
-	index("VolunteerBatch_tripId_idx").using("btree", table.tripId.asc().nullsLast().op("text_ops")),
+	index("VolunteerBatch_status_idx").using("btree", table.status.asc().nullsLast()),
+	index("VolunteerBatch_tripId_idx").using("btree", table.tripId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.tripId],
 			foreignColumns: [volunteerTrip.id],
@@ -445,8 +451,8 @@ export const assignmentAuditEntry = pgTable("AssignmentAuditEntry", {
 	actedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	reason: text(),
 }, (table) => [
-	index("AssignmentAuditEntry_assignment_idx").using("btree", table.assignment.asc().nullsLast().op("enum_ops")),
-	index("AssignmentAuditEntry_userId_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("AssignmentAuditEntry_assignment_idx").using("btree", table.assignment.asc().nullsLast()),
+	index("AssignmentAuditEntry_userId_idx").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -474,10 +480,10 @@ export const volunteerTrip = pgTable("VolunteerTrip", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("VolunteerTrip_fundraiserId_idx").using("btree", table.fundraiserId.asc().nullsLast().op("text_ops")),
-	index("VolunteerTrip_slug_idx").using("btree", table.slug.asc().nullsLast().op("text_ops")),
-	uniqueIndex("VolunteerTrip_slug_key").using("btree", table.slug.asc().nullsLast().op("text_ops")),
-	index("VolunteerTrip_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
+	index("VolunteerTrip_fundraiserId_idx").using("btree", table.fundraiserId.asc().nullsLast()),
+	index("VolunteerTrip_slug_idx").using("btree", table.slug.asc().nullsLast()),
+	uniqueIndex("VolunteerTrip_slug_key").using("btree", table.slug.asc().nullsLast()),
+	index("VolunteerTrip_status_idx").using("btree", table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.fundraiserId],
 			foreignColumns: [user.id],
@@ -497,7 +503,7 @@ export const campaignStatusChange = pgTable("CampaignStatusChange", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	final: boolean().default(false).notNull(),
 }, (table) => [
-	index("CampaignStatusChange_campaignId_createdAt_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
+	index("CampaignStatusChange_campaignId_createdAt_idx").using("btree", table.campaignId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -521,7 +527,7 @@ export const volunteerTripStatusChange = pgTable("VolunteerTripStatusChange", {
 	reason: text(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("VolunteerTripStatusChange_tripId_createdAt_idx").using("btree", table.tripId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
+	index("VolunteerTripStatusChange_tripId_createdAt_idx").using("btree", table.tripId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.tripId],
 			foreignColumns: [volunteerTrip.id],
@@ -545,7 +551,7 @@ export const cancellationRequest = pgTable("CancellationRequest", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	decidedAt: timestamp({ precision: 3, mode: 'date' }),
 }, (table) => [
-	index("CancellationRequest_campaignId_status_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.status.asc().nullsLast().op("text_ops")),
+	index("CancellationRequest_campaignId_status_idx").using("btree", table.campaignId.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -574,7 +580,7 @@ export const campaignFlag = pgTable("CampaignFlag", {
 	resolutionReason: text(),
 	resolvedAt: timestamp({ precision: 3, mode: 'date' }),
 }, (table) => [
-	index("CampaignFlag_campaignId_resolution_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.resolution.asc().nullsLast().op("text_ops")),
+	index("CampaignFlag_campaignId_resolution_idx").using("btree", table.campaignId.asc().nullsLast(), table.resolution.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -599,7 +605,7 @@ export const identityVerification = pgTable("IdentityVerification", {
 	verifiedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	note: text(),
 }, (table) => [
-	uniqueIndex("IdentityVerification_userId_key").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("IdentityVerification_userId_key").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -622,10 +628,10 @@ export const registration = pgTable("Registration", {
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 	attended: boolean().default(false).notNull(),
 }, (table) => [
-	index("Registration_batchId_idx").using("btree", table.batchId.asc().nullsLast().op("text_ops")),
-	index("Registration_holdExpiresAt_idx").using("btree", table.holdExpiresAt.asc().nullsLast().op("timestamp_ops")),
-	index("Registration_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
-	index("Registration_volunteerId_idx").using("btree", table.volunteerId.asc().nullsLast().op("text_ops")),
+	index("Registration_batchId_idx").using("btree", table.batchId.asc().nullsLast()),
+	index("Registration_holdExpiresAt_idx").using("btree", table.holdExpiresAt.asc().nullsLast()),
+	index("Registration_status_idx").using("btree", table.status.asc().nullsLast()),
+	index("Registration_volunteerId_idx").using("btree", table.volunteerId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.volunteerId],
 			foreignColumns: [user.id],
@@ -647,7 +653,7 @@ export const verificationChecklistAuditEntry = pgTable("VerificationChecklistAud
 	actedById: text().notNull(),
 	actedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("VerificationChecklistAuditEntry_itemId_actedAt_idx").using("btree", table.itemId.asc().nullsLast().op("text_ops"), table.actedAt.asc().nullsLast().op("text_ops")),
+	index("VerificationChecklistAuditEntry_itemId_actedAt_idx").using("btree", table.itemId.asc().nullsLast(), table.actedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.itemId],
 			foreignColumns: [verificationChecklistItem.id],
@@ -671,7 +677,7 @@ export const partnerOrganisationAuditEntry = pgTable("PartnerOrganisationAuditEn
 	actedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	kindAuthorisationId: text(),
 }, (table) => [
-	index("PartnerOrganisationAuditEntry_partnerOrganisationId_actedAt_idx").using("btree", table.partnerOrganisationId.asc().nullsLast().op("text_ops"), table.actedAt.asc().nullsLast().op("text_ops")),
+	index("PartnerOrganisationAuditEntry_partnerOrganisationId_actedAt_idx").using("btree", table.partnerOrganisationId.asc().nullsLast(), table.actedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.partnerOrganisationId],
 			foreignColumns: [partnerOrganisation.id],
@@ -700,7 +706,7 @@ export const platformFeeThreshold = pgTable("PlatformFeeThreshold", {
 	setById: text().notNull(),
 	setAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("PlatformFeeThreshold_setAt_idx").using("btree", table.setAt.asc().nullsLast().op("timestamp_ops")),
+	index("PlatformFeeThreshold_setAt_idx").using("btree", table.setAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.setById],
 			foreignColumns: [user.id],
@@ -719,7 +725,7 @@ export const fundraisingPermit = pgTable("FundraisingPermit", {
 	recordedById: text().notNull(),
 	recordedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("FundraisingPermit_partnerOrganisationId_validTo_idx").using("btree", table.partnerOrganisationId.asc().nullsLast().op("text_ops"), table.validTo.asc().nullsLast().op("text_ops")),
+	index("FundraisingPermit_partnerOrganisationId_validTo_idx").using("btree", table.partnerOrganisationId.asc().nullsLast(), table.validTo.asc().nullsLast()),
 	foreignKey({
 			columns: [table.partnerOrganisationId],
 			foreignColumns: [partnerOrganisation.id],
@@ -749,7 +755,7 @@ export const user = pgTable("User", {
 	emailVerifiedAt: timestamp({ precision: 3, mode: 'date' }),
 	profileType: profileType().default('INDIVIDUAL').notNull(),
 }, (table) => [
-	uniqueIndex("User_emailHmac_key").using("btree", table.emailHmac.asc().nullsLast().op("text_ops")),
+	uniqueIndex("User_emailHmac_key").using("btree", table.emailHmac.asc().nullsLast()),
 ]);
 
 export const kindAuthorisation = pgTable("KindAuthorisation", {
@@ -763,8 +769,8 @@ export const kindAuthorisation = pgTable("KindAuthorisation", {
 	grantedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	expiryWarningSentAt: timestamp({ precision: 3, mode: 'date' }),
 }, (table) => [
-	index("KindAuthorisation_partnerOrganisationId_validTo_idx").using("btree", table.partnerOrganisationId.asc().nullsLast().op("timestamp_ops"), table.validTo.asc().nullsLast().op("text_ops")),
-	index("KindAuthorisation_validTo_expiryWarningSentAt_idx").using("btree", table.validTo.asc().nullsLast().op("timestamp_ops"), table.expiryWarningSentAt.asc().nullsLast().op("timestamp_ops")),
+	index("KindAuthorisation_partnerOrganisationId_validTo_idx").using("btree", table.partnerOrganisationId.asc().nullsLast(), table.validTo.asc().nullsLast()),
+	index("KindAuthorisation_validTo_expiryWarningSentAt_idx").using("btree", table.validTo.asc().nullsLast(), table.expiryWarningSentAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.partnerOrganisationId],
 			foreignColumns: [partnerOrganisation.id],
@@ -787,9 +793,9 @@ export const platformFeeRule = pgTable("PlatformFeeRule", {
 	setById: text().notNull(),
 	setAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("PlatformFeeRule_scope_campaignId_setAt_idx").using("btree", table.scope.asc().nullsLast().op("enum_ops"), table.campaignId.asc().nullsLast().op("timestamp_ops"), table.setAt.asc().nullsLast().op("enum_ops")),
-	index("PlatformFeeRule_scope_category_setAt_idx").using("btree", table.scope.asc().nullsLast().op("text_ops"), table.category.asc().nullsLast().op("text_ops"), table.setAt.asc().nullsLast().op("text_ops")),
-	index("PlatformFeeRule_scope_kind_setAt_idx").using("btree", table.scope.asc().nullsLast().op("enum_ops"), table.kind.asc().nullsLast().op("enum_ops"), table.setAt.asc().nullsLast().op("timestamp_ops")),
+	index("PlatformFeeRule_scope_campaignId_setAt_idx").using("btree", table.scope.asc().nullsLast(), table.campaignId.asc().nullsLast(), table.setAt.asc().nullsLast()),
+	index("PlatformFeeRule_scope_category_setAt_idx").using("btree", table.scope.asc().nullsLast(), table.category.asc().nullsLast(), table.setAt.asc().nullsLast()),
+	index("PlatformFeeRule_scope_kind_setAt_idx").using("btree", table.scope.asc().nullsLast(), table.kind.asc().nullsLast(), table.setAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -811,8 +817,8 @@ export const receipt = pgTable("Receipt", {
 	resendCount: integer().default(0).notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("Receipt_donationId_key").using("btree", table.donationId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("Receipt_token_key").using("btree", table.token.asc().nullsLast().op("text_ops")),
+	uniqueIndex("Receipt_donationId_key").using("btree", table.donationId.asc().nullsLast()),
+	uniqueIndex("Receipt_token_key").using("btree", table.token.asc().nullsLast()),
 	foreignKey({
 			columns: [table.donationId],
 			foreignColumns: [donation.id],
@@ -826,8 +832,8 @@ export const akadWakaf = pgTable("AkadWakaf", {
 	token: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("AkadWakaf_donationId_key").using("btree", table.donationId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("AkadWakaf_token_key").using("btree", table.token.asc().nullsLast().op("text_ops")),
+	uniqueIndex("AkadWakaf_donationId_key").using("btree", table.donationId.asc().nullsLast()),
+	uniqueIndex("AkadWakaf_token_key").using("btree", table.token.asc().nullsLast()),
 	foreignKey({
 			columns: [table.donationId],
 			foreignColumns: [donation.id],
@@ -855,8 +861,8 @@ export const program = pgTable("Program", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("Program_sector_idx").using("btree", table.sector.asc().nullsLast().op("enum_ops")),
-	uniqueIndex("Program_slug_key").using("btree", table.slug.asc().nullsLast().op("text_ops")),
+	index("Program_sector_idx").using("btree", table.sector.asc().nullsLast()),
+	uniqueIndex("Program_slug_key").using("btree", table.slug.asc().nullsLast()),
 ]);
 
 export const duplicateSimilarityThreshold = pgTable("DuplicateSimilarityThreshold", {
@@ -865,7 +871,7 @@ export const duplicateSimilarityThreshold = pgTable("DuplicateSimilarityThreshol
 	setById: text().notNull(),
 	setAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("DuplicateSimilarityThreshold_setAt_idx").using("btree", table.setAt.asc().nullsLast().op("timestamp_ops")),
+	index("DuplicateSimilarityThreshold_setAt_idx").using("btree", table.setAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.setById],
 			foreignColumns: [user.id],
@@ -890,9 +896,9 @@ export const manualContribution = pgTable("ManualContribution", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("ManualContribution_campaignId_status_idx").using("btree", table.campaignId.asc().nullsLast().op("enum_ops"), table.status.asc().nullsLast().op("text_ops")),
-	index("ManualContribution_programId_status_idx").using("btree", table.programId.asc().nullsLast().op("enum_ops"), table.status.asc().nullsLast().op("text_ops")),
-	index("ManualContribution_status_createdAt_idx").using("btree", table.status.asc().nullsLast().op("timestamp_ops"), table.createdAt.asc().nullsLast().op("timestamp_ops")),
+	index("ManualContribution_campaignId_status_idx").using("btree", table.campaignId.asc().nullsLast(), table.status.asc().nullsLast()),
+	index("ManualContribution_programId_status_idx").using("btree", table.programId.asc().nullsLast(), table.status.asc().nullsLast()),
+	index("ManualContribution_status_createdAt_idx").using("btree", table.status.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -927,7 +933,7 @@ export const campaignAuditMarker = pgTable("CampaignAuditMarker", {
 	threshold: integer().notNull(),
 	placedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("CampaignAuditMarker_campaignId_key").using("btree", table.campaignId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("CampaignAuditMarker_campaignId_key").using("btree", table.campaignId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -943,8 +949,8 @@ export const donationReviewMarker = pgTable("DonationReviewMarker", {
 	threshold: integer().notNull(),
 	flaggedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("DonationReviewMarker_campaignId_flaggedAt_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.flaggedAt.asc().nullsLast().op("text_ops")),
-	uniqueIndex("DonationReviewMarker_donationId_key").using("btree", table.donationId.asc().nullsLast().op("text_ops")),
+	index("DonationReviewMarker_campaignId_flaggedAt_idx").using("btree", table.campaignId.asc().nullsLast(), table.flaggedAt.asc().nullsLast()),
+	uniqueIndex("DonationReviewMarker_donationId_key").using("btree", table.donationId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.donationId],
 			foreignColumns: [donation.id],
@@ -971,8 +977,8 @@ export const providerWithdrawal = pgTable("ProviderWithdrawal", {
 	recordedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	merchantEntity: merchantEntity().default('YAYASAN').notNull(),
 }, (table) => [
-	index("ProviderWithdrawal_provider_recordedAt_idx").using("btree", table.provider.asc().nullsLast().op("text_ops"), table.recordedAt.asc().nullsLast().op("text_ops")),
-	uniqueIndex("ProviderWithdrawal_reference_key").using("btree", table.reference.asc().nullsLast().op("text_ops")),
+	index("ProviderWithdrawal_provider_recordedAt_idx").using("btree", table.provider.asc().nullsLast(), table.recordedAt.asc().nullsLast()),
+	uniqueIndex("ProviderWithdrawal_reference_key").using("btree", table.reference.asc().nullsLast()),
 	foreignKey({
 			columns: [table.collectingEntityId],
 			foreignColumns: [partnerOrganisation.id],
@@ -992,7 +998,7 @@ export const abuseThreshold = pgTable("AbuseThreshold", {
 	setById: text().notNull(),
 	setAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("AbuseThreshold_kind_setAt_idx").using("btree", table.kind.asc().nullsLast().op("timestamp_ops"), table.setAt.asc().nullsLast().op("timestamp_ops")),
+	index("AbuseThreshold_kind_setAt_idx").using("btree", table.kind.asc().nullsLast(), table.setAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.setById],
 			foreignColumns: [user.id],
@@ -1012,9 +1018,9 @@ export const bankAccountVerificationRequest = pgTable("BankAccountVerificationRe
 	decidedById: text(),
 	decidedAt: timestamp({ precision: 3, mode: 'date' }),
 }, (table) => [
-	uniqueIndex("BankAccountVerificationRequest_bankAccountId_pending_key").using("btree", table.bankAccountId.asc().nullsLast().op("text_ops")).where(sql`(outcome = 'PENDING'::"VerificationOutcome")`),
-	index("BankAccountVerificationRequest_bankAccountId_submittedAt_idx").using("btree", table.bankAccountId.asc().nullsLast().op("text_ops"), table.submittedAt.asc().nullsLast().op("text_ops")),
-	index("BankAccountVerificationRequest_outcome_submittedAt_idx").using("btree", table.outcome.asc().nullsLast().op("enum_ops"), table.submittedAt.asc().nullsLast().op("timestamp_ops")),
+	uniqueIndex("BankAccountVerificationRequest_bankAccountId_pending_key").using("btree", table.bankAccountId.asc().nullsLast()).where(sql`(outcome = 'PENDING'::"VerificationOutcome")`),
+	index("BankAccountVerificationRequest_bankAccountId_submittedAt_idx").using("btree", table.bankAccountId.asc().nullsLast(), table.submittedAt.asc().nullsLast()),
+	index("BankAccountVerificationRequest_outcome_submittedAt_idx").using("btree", table.outcome.asc().nullsLast(), table.submittedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.bankAccountId],
 			foreignColumns: [bankAccount.id],
@@ -1049,8 +1055,8 @@ export const verificationRequest = pgTable("VerificationRequest", {
 	raisedByAmount: jsonb(),
 	truthStatementAcceptedAt: timestamp({ precision: 3, mode: 'date' }),
 }, (table) => [
-	index("VerificationRequest_campaignId_submittedAt_idx").using("btree", table.campaignId.asc().nullsLast().op("timestamp_ops"), table.submittedAt.asc().nullsLast().op("text_ops")),
-	index("VerificationRequest_outcome_submittedAt_idx").using("btree", table.outcome.asc().nullsLast().op("timestamp_ops"), table.submittedAt.asc().nullsLast().op("enum_ops")),
+	index("VerificationRequest_campaignId_submittedAt_idx").using("btree", table.campaignId.asc().nullsLast(), table.submittedAt.asc().nullsLast()),
+	index("VerificationRequest_outcome_submittedAt_idx").using("btree", table.outcome.asc().nullsLast(), table.submittedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -1085,7 +1091,7 @@ export const partnershipInquiryStatusChange = pgTable("PartnershipInquiryStatusC
 	picFromId: text(),
 	picToId: text(),
 }, (table) => [
-	index("PartnershipInquiryStatusChange_inquiryId_actedAt_idx").using("btree", table.inquiryId.asc().nullsLast().op("text_ops"), table.actedAt.asc().nullsLast().op("text_ops")),
+	index("PartnershipInquiryStatusChange_inquiryId_actedAt_idx").using("btree", table.inquiryId.asc().nullsLast(), table.actedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.inquiryId],
 			foreignColumns: [partnershipInquiry.id],
@@ -1119,9 +1125,9 @@ export const assignmentGrantRequest = pgTable("AssignmentGrantRequest", {
 	decidedAt: timestamp({ precision: 3, mode: 'date' }),
 	decidedReason: text(),
 }, (table) => [
-	index("AssignmentGrantRequest_outcome_proposedAt_idx").using("btree", table.outcome.asc().nullsLast().op("timestamp_ops"), table.proposedAt.asc().nullsLast().op("timestamp_ops")),
-	uniqueIndex("AssignmentGrantRequest_userId_pending_key").using("btree", table.userId.asc().nullsLast().op("text_ops")).where(sql`(outcome = 'PENDING'::"GrantRequestOutcome")`),
-	index("AssignmentGrantRequest_userId_proposedAt_idx").using("btree", table.userId.asc().nullsLast().op("timestamp_ops"), table.proposedAt.asc().nullsLast().op("text_ops")),
+	index("AssignmentGrantRequest_outcome_proposedAt_idx").using("btree", table.outcome.asc().nullsLast(), table.proposedAt.asc().nullsLast()),
+	uniqueIndex("AssignmentGrantRequest_userId_pending_key").using("btree", table.userId.asc().nullsLast()).where(sql`(outcome = 'PENDING'::"GrantRequestOutcome")`),
+	index("AssignmentGrantRequest_userId_proposedAt_idx").using("btree", table.userId.asc().nullsLast(), table.proposedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -1148,8 +1154,8 @@ export const emailVerificationToken = pgTable("EmailVerificationToken", {
 	usedAt: timestamp({ precision: 3, mode: 'date' }),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("EmailVerificationToken_tokenHash_key").using("btree", table.tokenHash.asc().nullsLast().op("text_ops")),
-	index("EmailVerificationToken_userId_createdAt_idx").using("btree", table.userId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
+	uniqueIndex("EmailVerificationToken_tokenHash_key").using("btree", table.tokenHash.asc().nullsLast()),
+	index("EmailVerificationToken_userId_createdAt_idx").using("btree", table.userId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -1165,7 +1171,7 @@ export const payoutBalanceCheck = pgTable("PayoutBalanceCheck", {
 	recordedBalance: integer().notNull(),
 	checkedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("PayoutBalanceCheck_payoutId_idx").using("btree", table.payoutId.asc().nullsLast().op("text_ops")),
+	index("PayoutBalanceCheck_payoutId_idx").using("btree", table.payoutId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.payoutId],
 			foreignColumns: [payout.id],
@@ -1186,7 +1192,7 @@ export const bankAccountRevocation = pgTable("BankAccountRevocation", {
 	actorId: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("BankAccountRevocation_bankAccountId_createdAt_idx").using("btree", table.bankAccountId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
+	index("BankAccountRevocation_bankAccountId_createdAt_idx").using("btree", table.bankAccountId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.bankAccountId],
 			foreignColumns: [bankAccount.id],
@@ -1211,8 +1217,8 @@ export const chargeWriteFailure = pgTable("ChargeWriteFailure", {
 	resolvedAt: timestamp({ precision: 3, mode: 'date' }),
 	resolutionNote: text(),
 }, (table) => [
-	index("ChargeWriteFailure_providerRef_idx").using("btree", table.providerRef.asc().nullsLast().op("text_ops")),
-	index("ChargeWriteFailure_resolvedAt_createdAt_idx").using("btree", table.resolvedAt.asc().nullsLast().op("timestamp_ops"), table.createdAt.asc().nullsLast().op("timestamp_ops")),
+	index("ChargeWriteFailure_providerRef_idx").using("btree", table.providerRef.asc().nullsLast()),
+	index("ChargeWriteFailure_resolvedAt_createdAt_idx").using("btree", table.resolvedAt.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 ]);
 
 export const usageReport = pgTable("UsageReport", {
@@ -1229,7 +1235,7 @@ export const usageReport = pgTable("UsageReport", {
 	disputedById: text(),
 	sandbox: boolean().default(false).notNull(),
 }, (table) => [
-	uniqueIndex("UsageReport_payoutId_key").using("btree", table.payoutId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("UsageReport_payoutId_key").using("btree", table.payoutId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.payoutId],
 			foreignColumns: [payout.id],
@@ -1259,8 +1265,8 @@ export const volunteerCertificate = pgTable("VolunteerCertificate", {
 	organizerName: text().notNull(),
 	issuedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("VolunteerCertificate_code_key").using("btree", table.code.asc().nullsLast().op("text_ops")),
-	uniqueIndex("VolunteerCertificate_registrationId_key").using("btree", table.registrationId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("VolunteerCertificate_code_key").using("btree", table.code.asc().nullsLast()),
+	uniqueIndex("VolunteerCertificate_registrationId_key").using("btree", table.registrationId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.registrationId],
 			foreignColumns: [registration.id],
@@ -1275,7 +1281,7 @@ export const paymentProviderSetting = pgTable("PaymentProviderSetting", {
 	setById: text().notNull(),
 	setAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("PaymentProviderSetting_setAt_idx").using("btree", table.setAt.asc().nullsLast().op("timestamp_ops")),
+	index("PaymentProviderSetting_setAt_idx").using("btree", table.setAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.setById],
 			foreignColumns: [user.id],
@@ -1297,9 +1303,9 @@ export const campaignTransfer = pgTable("CampaignTransfer", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("CampaignTransfer_sourceId_status_idx").using("btree", table.sourceId.asc().nullsLast().op("text_ops"), table.status.asc().nullsLast().op("enum_ops")),
-	index("CampaignTransfer_status_createdAt_idx").using("btree", table.status.asc().nullsLast().op("timestamp_ops"), table.createdAt.asc().nullsLast().op("enum_ops")),
-	index("CampaignTransfer_targetId_status_idx").using("btree", table.targetId.asc().nullsLast().op("enum_ops"), table.status.asc().nullsLast().op("text_ops")),
+	index("CampaignTransfer_sourceId_status_idx").using("btree", table.sourceId.asc().nullsLast(), table.status.asc().nullsLast()),
+	index("CampaignTransfer_status_createdAt_idx").using("btree", table.status.asc().nullsLast(), table.createdAt.asc().nullsLast()),
+	index("CampaignTransfer_targetId_status_idx").using("btree", table.targetId.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.sourceId],
 			foreignColumns: [campaign.id],
@@ -1328,7 +1334,7 @@ export const payoutAccountReveal = pgTable("PayoutAccountReveal", {
 	revealedById: text().notNull(),
 	revealedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("PayoutAccountReveal_payoutId_revealedAt_idx").using("btree", table.payoutId.asc().nullsLast().op("text_ops"), table.revealedAt.asc().nullsLast().op("text_ops")),
+	index("PayoutAccountReveal_payoutId_revealedAt_idx").using("btree", table.payoutId.asc().nullsLast(), table.revealedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.payoutId],
 			foreignColumns: [payout.id],
@@ -1349,7 +1355,7 @@ export const escrowHoldSetting = pgTable("EscrowHoldSetting", {
 	setById: text().notNull(),
 	setAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("EscrowHoldSetting_scope_category_setAt_idx").using("btree", table.scope.asc().nullsLast().op("timestamp_ops"), table.category.asc().nullsLast().op("timestamp_ops"), table.setAt.asc().nullsLast().op("text_ops")),
+	index("EscrowHoldSetting_scope_category_setAt_idx").using("btree", table.scope.asc().nullsLast(), table.category.asc().nullsLast(), table.setAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.setById],
 			foreignColumns: [user.id],
@@ -1386,11 +1392,11 @@ export const document = pgTable("Document", {
 	payoutId: text(),
 	partnershipInquiryId: text(),
 }, (table) => [
-	index("Document_campaignId_checklistItemId_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.checklistItemId.asc().nullsLast().op("text_ops")),
-	index("Document_partnerOrganisationId_uploadedAt_idx").using("btree", table.partnerOrganisationId.asc().nullsLast().op("text_ops"), table.uploadedAt.asc().nullsLast().op("timestamp_ops")),
-	index("Document_partnershipInquiryId_uploadedAt_idx").using("btree", table.partnershipInquiryId.asc().nullsLast().op("text_ops"), table.uploadedAt.asc().nullsLast().op("text_ops")),
-	index("Document_payoutId_uploadedAt_idx").using("btree", table.payoutId.asc().nullsLast().op("text_ops"), table.uploadedAt.asc().nullsLast().op("timestamp_ops")),
-	uniqueIndex("Document_storagePath_key").using("btree", table.storagePath.asc().nullsLast().op("text_ops")),
+	index("Document_campaignId_checklistItemId_idx").using("btree", table.campaignId.asc().nullsLast(), table.checklistItemId.asc().nullsLast()),
+	index("Document_partnerOrganisationId_uploadedAt_idx").using("btree", table.partnerOrganisationId.asc().nullsLast(), table.uploadedAt.asc().nullsLast()),
+	index("Document_partnershipInquiryId_uploadedAt_idx").using("btree", table.partnershipInquiryId.asc().nullsLast(), table.uploadedAt.asc().nullsLast()),
+	index("Document_payoutId_uploadedAt_idx").using("btree", table.payoutId.asc().nullsLast(), table.uploadedAt.asc().nullsLast()),
+	uniqueIndex("Document_storagePath_key").using("btree", table.storagePath.asc().nullsLast()),
 	foreignKey({
 			columns: [table.uploadedById],
 			foreignColumns: [user.id],
@@ -1421,7 +1427,7 @@ export const document = pgTable("Document", {
 			foreignColumns: [partnershipInquiry.id],
 			name: "Document_partnershipInquiryId_fkey"
 		}).onUpdate("cascade").onDelete("restrict"),
-	check("Document_storagePath_relative", sql`("storagePath" !~ '^/'::text) AND ("storagePath" !~ '(^|/)\.\.?(/|$)'::text)`),
+	check("Document_storagePath_relative", sql`("storagePath" !~ '^/'::text) AND ("storagePath" !~ '(^|/)\\.\\.?(/|$)'::text)`),
 	check("Document_one_owner", sql`(("campaignId" IS NOT NULL) AND ("partnerOrganisationId" IS NULL) AND ("payoutId" IS NULL) AND ("partnershipInquiryId" IS NULL) AND ("checklistItemId" IS NOT NULL)) OR (("campaignId" IS NULL) AND ("partnerOrganisationId" IS NOT NULL) AND ("payoutId" IS NULL) AND ("partnershipInquiryId" IS NULL) AND ("checklistItemId" IS NULL)) OR (("campaignId" IS NULL) AND ("partnerOrganisationId" IS NULL) AND ("payoutId" IS NOT NULL) AND ("partnershipInquiryId" IS NULL) AND ("checklistItemId" IS NULL)) OR (("campaignId" IS NULL) AND ("partnerOrganisationId" IS NULL) AND ("payoutId" IS NULL) AND ("partnershipInquiryId" IS NOT NULL) AND ("checklistItemId" IS NULL))`),
 ]);
 
@@ -1433,8 +1439,8 @@ export const organisationMember = pgTable("OrganisationMember", {
 	addedById: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("OrganisationMember_partnerOrganisationId_idx").using("btree", table.partnerOrganisationId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("OrganisationMember_userId_key").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("OrganisationMember_partnerOrganisationId_idx").using("btree", table.partnerOrganisationId.asc().nullsLast()),
+	uniqueIndex("OrganisationMember_userId_key").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.partnerOrganisationId],
 			foreignColumns: [partnerOrganisation.id],
@@ -1460,8 +1466,8 @@ export const shortLink = pgTable("ShortLink", {
 	clickCount: integer().default(0).notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("ShortLink_campaignId_source_key").using("btree", table.campaignId.asc().nullsLast().op("text_ops"), table.source.asc().nullsLast().op("text_ops")),
-	uniqueIndex("ShortLink_code_key").using("btree", table.code.asc().nullsLast().op("text_ops")),
+	uniqueIndex("ShortLink_campaignId_source_key").using("btree", table.campaignId.asc().nullsLast(), table.source.asc().nullsLast()),
+	uniqueIndex("ShortLink_code_key").using("btree", table.code.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -1485,8 +1491,8 @@ export const organisationInvitation = pgTable("OrganisationInvitation", {
 	revokedAt: timestamp({ precision: 3, mode: 'date' }),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("OrganisationInvitation_partnerOrganisationId_createdAt_idx").using("btree", table.partnerOrganisationId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
-	uniqueIndex("OrganisationInvitation_tokenHash_key").using("btree", table.tokenHash.asc().nullsLast().op("text_ops")),
+	index("OrganisationInvitation_partnerOrganisationId_createdAt_idx").using("btree", table.partnerOrganisationId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
+	uniqueIndex("OrganisationInvitation_tokenHash_key").using("btree", table.tokenHash.asc().nullsLast()),
 	foreignKey({
 			columns: [table.partnerOrganisationId],
 			foreignColumns: [partnerOrganisation.id],
@@ -1512,7 +1518,7 @@ export const company = pgTable("Company", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	uniqueIndex("Company_emailDomain_key").using("btree", table.emailDomain.asc().nullsLast().op("text_ops")),
+	uniqueIndex("Company_emailDomain_key").using("btree", table.emailDomain.asc().nullsLast()),
 ]);
 
 export const companyMembership = pgTable("CompanyMembership", {
@@ -1521,8 +1527,8 @@ export const companyMembership = pgTable("CompanyMembership", {
 	userId: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("CompanyMembership_companyId_idx").using("btree", table.companyId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("CompanyMembership_userId_key").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("CompanyMembership_companyId_idx").using("btree", table.companyId.asc().nullsLast()),
+	uniqueIndex("CompanyMembership_userId_key").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.companyId],
 			foreignColumns: [company.id],
@@ -1545,7 +1551,7 @@ export const loginCode = pgTable("LoginCode", {
 	usedAt: timestamp({ precision: 3, mode: 'date' }),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("LoginCode_userId_createdAt_idx").using("btree", table.userId.asc().nullsLast().op("text_ops"), table.createdAt.asc().nullsLast().op("text_ops")),
+	index("LoginCode_userId_createdAt_idx").using("btree", table.userId.asc().nullsLast(), table.createdAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -1572,8 +1578,8 @@ export const failedNotification = pgTable("FailedNotification", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("FailedNotification_createdAt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamp_ops")),
-	index("FailedNotification_status_nextAttemptAt_idx").using("btree", table.status.asc().nullsLast().op("timestamp_ops"), table.nextAttemptAt.asc().nullsLast().op("timestamp_ops")),
+	index("FailedNotification_createdAt_idx").using("btree", table.createdAt.asc().nullsLast()),
+	index("FailedNotification_status_nextAttemptAt_idx").using("btree", table.status.asc().nullsLast(), table.nextAttemptAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.lastRetriedById],
 			foreignColumns: [user.id],
@@ -1593,8 +1599,8 @@ export const userConsent = pgTable("UserConsent", {
 	version: text().notNull(),
 	acceptedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("UserConsent_userId_document_version_key").using("btree", table.userId.asc().nullsLast().op("enum_ops"), table.document.asc().nullsLast().op("enum_ops"), table.version.asc().nullsLast().op("enum_ops")),
-	index("UserConsent_userId_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("UserConsent_userId_document_version_key").using("btree", table.userId.asc().nullsLast(), table.document.asc().nullsLast(), table.version.asc().nullsLast()),
+	index("UserConsent_userId_idx").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -1615,7 +1621,7 @@ export const partnerOrganisation = pgTable("PartnerOrganisation", {
 	responsiblePersonPhoneKeyId: text(),
 	responsiblePersonTitle: text(),
 }, (table) => [
-	uniqueIndex("PartnerOrganisation_fundraiserId_key").using("btree", table.fundraiserId.asc().nullsLast().op("text_ops")),
+	uniqueIndex("PartnerOrganisation_fundraiserId_key").using("btree", table.fundraiserId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.fundraiserId],
 			foreignColumns: [user.id],
@@ -1639,8 +1645,8 @@ export const verificationChecklistItem = pgTable("VerificationChecklistItem", {
 	applicant: checklistApplicant(),
 	requestKinds: verificationRequestKind("requestKinds").array().default(sql`ARRAY['SUBMISSION'::"VerificationRequestKind", 'CHANGE'::"VerificationRequestKind", 'AMOUNT_REVIEW'::"VerificationRequestKind"]`),
 }, (table) => [
-	index("VerificationChecklistItem_active_position_idx").using("btree", table.active.asc().nullsLast().op("int4_ops"), table.position.asc().nullsLast().op("bool_ops")),
-	index("VerificationChecklistItem_kind_active_position_idx").using("btree", table.kind.asc().nullsLast().op("int4_ops"), table.active.asc().nullsLast().op("enum_ops"), table.position.asc().nullsLast().op("enum_ops")),
+	index("VerificationChecklistItem_active_position_idx").using("btree", table.active.asc().nullsLast(), table.position.asc().nullsLast()),
+	index("VerificationChecklistItem_kind_active_position_idx").using("btree", table.kind.asc().nullsLast(), table.active.asc().nullsLast(), table.position.asc().nullsLast()),
 ]);
 
 export const campaign = pgTable("Campaign", {
@@ -1670,20 +1676,20 @@ export const campaign = pgTable("Campaign", {
 	beneficiaryDescription: text(),
 	beneficiaryCount: integer(),
 	beneficiaryRelationship: text(),
-	galleryImages: text().array().default(["RAY"]),
+	galleryImages: text().array().default(sql`ARRAY[]::text[]`),
 	rejectionFinal: boolean().default(false).notNull(),
 }, (table) => [
-	index("Campaign_beneficiaryName_idx").using("btree", table.beneficiaryName.asc().nullsLast().op("text_ops")),
-	index("Campaign_category_idx").using("btree", table.category.asc().nullsLast().op("text_ops")),
-	index("Campaign_collectingEntityId_idx").using("btree", table.collectingEntityId.asc().nullsLast().op("text_ops")),
-	index("Campaign_creatorId_idx").using("btree", table.creatorId.asc().nullsLast().op("text_ops")),
-	index("Campaign_kind_idx").using("btree", table.kind.asc().nullsLast().op("enum_ops")),
-	index("Campaign_lifecycleStatus_deadline_idx").using("btree", table.lifecycleStatus.asc().nullsLast().op("enum_ops"), table.deadline.asc().nullsLast().op("enum_ops")),
-	index("Campaign_lifecycleStatus_idx").using("btree", table.lifecycleStatus.asc().nullsLast().op("enum_ops")),
-	index("Campaign_location_idx").using("btree", table.location.asc().nullsLast().op("text_ops")),
-	index("Campaign_slug_idx").using("btree", table.slug.asc().nullsLast().op("text_ops")),
-	uniqueIndex("Campaign_slug_key").using("btree", table.slug.asc().nullsLast().op("text_ops")),
-	index("Campaign_title_idx").using("gin", table.title.asc().nullsLast().op("gin_trgm_ops")),
+	index("Campaign_beneficiaryName_idx").using("btree", table.beneficiaryName.asc().nullsLast()),
+	index("Campaign_category_idx").using("btree", table.category.asc().nullsLast()),
+	index("Campaign_collectingEntityId_idx").using("btree", table.collectingEntityId.asc().nullsLast()),
+	index("Campaign_creatorId_idx").using("btree", table.creatorId.asc().nullsLast()),
+	index("Campaign_kind_idx").using("btree", table.kind.asc().nullsLast()),
+	index("Campaign_lifecycleStatus_deadline_idx").using("btree", table.lifecycleStatus.asc().nullsLast(), table.deadline.asc().nullsLast()),
+	index("Campaign_lifecycleStatus_idx").using("btree", table.lifecycleStatus.asc().nullsLast()),
+	index("Campaign_location_idx").using("btree", table.location.asc().nullsLast()),
+	index("Campaign_slug_idx").using("btree", table.slug.asc().nullsLast()),
+	uniqueIndex("Campaign_slug_key").using("btree", table.slug.asc().nullsLast()),
+	index("Campaign_title_idx").using("gin", table.title.op("gin_trgm_ops")),
 	foreignKey({
 			columns: [table.creatorId],
 			foreignColumns: [user.id],
@@ -1714,10 +1720,10 @@ export const prayer = pgTable("Prayer", {
 	lastModeratedAt: timestamp({ precision: 3, mode: 'date' }),
 	lastModeratedById: text(),
 }, (table) => [
-	index("Prayer_campaignId_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops")),
-	index("Prayer_createdAt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamp_ops")),
-	uniqueIndex("Prayer_donationId_key").using("btree", table.donationId.asc().nullsLast().op("text_ops")),
-	index("Prayer_userId_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("Prayer_campaignId_idx").using("btree", table.campaignId.asc().nullsLast()),
+	index("Prayer_createdAt_idx").using("btree", table.createdAt.asc().nullsLast()),
+	uniqueIndex("Prayer_donationId_key").using("btree", table.donationId.asc().nullsLast()),
+	index("Prayer_userId_idx").using("btree", table.userId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.donationId],
 			foreignColumns: [donation.id],
@@ -1761,10 +1767,10 @@ export const payout = pgTable("Payout", {
 	revisionRequestedById: text(),
 	supportingNote: varchar({ length: 1000 }),
 }, (table) => [
-	index("Payout_campaignId_status_idx").using("btree", table.campaignId.asc().nullsLast().op("enum_ops"), table.status.asc().nullsLast().op("enum_ops")),
-	uniqueIndex("Payout_providerRef_key").using("btree", table.providerRef.asc().nullsLast().op("text_ops")),
-	index("Payout_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
-	index("Payout_volunteerTripId_status_idx").using("btree", table.volunteerTripId.asc().nullsLast().op("text_ops"), table.status.asc().nullsLast().op("text_ops")),
+	index("Payout_campaignId_status_idx").using("btree", table.campaignId.asc().nullsLast(), table.status.asc().nullsLast()),
+	uniqueIndex("Payout_providerRef_key").using("btree", table.providerRef.asc().nullsLast()),
+	index("Payout_status_idx").using("btree", table.status.asc().nullsLast()),
+	index("Payout_volunteerTripId_status_idx").using("btree", table.volunteerTripId.asc().nullsLast(), table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -1803,7 +1809,7 @@ export const aamiinMark = pgTable("AamiinMark", {
 	marker: text().notNull(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("AamiinMark_prayerId_marker_key").using("btree", table.prayerId.asc().nullsLast().op("text_ops"), table.marker.asc().nullsLast().op("text_ops")),
+	uniqueIndex("AamiinMark_prayerId_marker_key").using("btree", table.prayerId.asc().nullsLast(), table.marker.asc().nullsLast()),
 	foreignKey({
 			columns: [table.prayerId],
 			foreignColumns: [prayer.id],
@@ -1819,8 +1825,8 @@ export const campaignFeature = pgTable("CampaignFeature", {
 	markedById: text().notNull(),
 	markedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("CampaignFeature_campaignId_kind_key").using("btree", table.campaignId.asc().nullsLast().op("enum_ops"), table.kind.asc().nullsLast().op("text_ops")),
-	index("CampaignFeature_kind_position_idx").using("btree", table.kind.asc().nullsLast().op("int4_ops"), table.position.asc().nullsLast().op("enum_ops")),
+	uniqueIndex("CampaignFeature_campaignId_kind_key").using("btree", table.campaignId.asc().nullsLast(), table.kind.asc().nullsLast()),
+	index("CampaignFeature_kind_position_idx").using("btree", table.kind.asc().nullsLast(), table.position.asc().nullsLast()),
 	foreignKey({
 			columns: [table.campaignId],
 			foreignColumns: [campaign.id],
@@ -1835,8 +1841,8 @@ export const prayerHighlight = pgTable("PrayerHighlight", {
 	markedById: text().notNull(),
 	markedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("PrayerHighlight_position_idx").using("btree", table.position.asc().nullsLast().op("int4_ops")),
-	uniqueIndex("PrayerHighlight_prayerId_key").using("btree", table.prayerId.asc().nullsLast().op("text_ops")),
+	index("PrayerHighlight_position_idx").using("btree", table.position.asc().nullsLast()),
+	uniqueIndex("PrayerHighlight_prayerId_key").using("btree", table.prayerId.asc().nullsLast()),
 	foreignKey({
 			columns: [table.prayerId],
 			foreignColumns: [prayer.id],
@@ -1856,9 +1862,9 @@ export const recurringDonation = pgTable("RecurringDonation", {
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp({ precision: 3, mode: 'date' }).notNull(),
 }, (table) => [
-	index("RecurringDonation_campaignId_idx").using("btree", table.campaignId.asc().nullsLast().op("text_ops")),
-	index("RecurringDonation_donorId_idx").using("btree", table.donorId.asc().nullsLast().op("text_ops")),
-	index("RecurringDonation_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
+	index("RecurringDonation_campaignId_idx").using("btree", table.campaignId.asc().nullsLast()),
+	index("RecurringDonation_donorId_idx").using("btree", table.donorId.asc().nullsLast()),
+	index("RecurringDonation_status_idx").using("btree", table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.donorId],
 			foreignColumns: [user.id],
@@ -1879,8 +1885,8 @@ export const recurringDonationCycle = pgTable("RecurringDonationCycle", {
 	donationId: text(),
 	createdAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	uniqueIndex("RecurringDonationCycle_donationId_key").using("btree", table.donationId.asc().nullsLast().op("text_ops")),
-	uniqueIndex("RecurringDonationCycle_recurringId_cycleIndex_key").using("btree", table.recurringId.asc().nullsLast().op("int4_ops"), table.cycleIndex.asc().nullsLast().op("int4_ops")),
+	uniqueIndex("RecurringDonationCycle_donationId_key").using("btree", table.donationId.asc().nullsLast()),
+	uniqueIndex("RecurringDonationCycle_recurringId_cycleIndex_key").using("btree", table.recurringId.asc().nullsLast(), table.cycleIndex.asc().nullsLast()),
 	foreignKey({
 			columns: [table.recurringId],
 			foreignColumns: [recurringDonation.id],
@@ -1919,11 +1925,11 @@ export const partnershipInquiry = pgTable("PartnershipInquiry", {
 	periodStart: varchar({ length: 7 }),
 	picId: text(),
 }, (table) => [
-	index("PartnershipInquiry_companyId_idx").using("btree", table.companyId.asc().nullsLast().op("text_ops")),
-	index("PartnershipInquiry_contactEmailHmac_idx").using("btree", table.contactEmailHmac.asc().nullsLast().op("text_ops")),
-	index("PartnershipInquiry_picId_idx").using("btree", table.picId.asc().nullsLast().op("text_ops")),
-	index("PartnershipInquiry_programId_idx").using("btree", table.programId.asc().nullsLast().op("text_ops")),
-	index("PartnershipInquiry_status_idx").using("btree", table.status.asc().nullsLast().op("enum_ops")),
+	index("PartnershipInquiry_companyId_idx").using("btree", table.companyId.asc().nullsLast()),
+	index("PartnershipInquiry_contactEmailHmac_idx").using("btree", table.contactEmailHmac.asc().nullsLast()),
+	index("PartnershipInquiry_picId_idx").using("btree", table.picId.asc().nullsLast()),
+	index("PartnershipInquiry_programId_idx").using("btree", table.programId.asc().nullsLast()),
+	index("PartnershipInquiry_status_idx").using("btree", table.status.asc().nullsLast()),
 	foreignKey({
 			columns: [table.programId],
 			foreignColumns: [program.id],
@@ -1952,7 +1958,7 @@ export const zakatDistribution = pgTable("ZakatDistribution", {
 	recordedById: text().notNull(),
 	recordedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("ZakatDistribution_organisationId_distributedAt_idx").using("btree", table.organisationId.asc().nullsLast().op("text_ops"), table.distributedAt.asc().nullsLast().op("text_ops")),
+	index("ZakatDistribution_organisationId_distributedAt_idx").using("btree", table.organisationId.asc().nullsLast(), table.distributedAt.asc().nullsLast()),
 	foreignKey({
 			columns: [table.organisationId],
 			foreignColumns: [partnerOrganisation.id],
@@ -1970,7 +1976,7 @@ export const userAssignment = pgTable("UserAssignment", {
 	assignment: assignment().notNull(),
 	assignedAt: timestamp({ precision: 3, mode: 'date' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-	index("UserAssignment_assignment_idx").using("btree", table.assignment.asc().nullsLast().op("enum_ops")),
+	index("UserAssignment_assignment_idx").using("btree", table.assignment.asc().nullsLast()),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [user.id],
@@ -1985,6 +1991,6 @@ export const rateLimitBucket = pgTable("RateLimitBucket", {
 	windowStart: timestamp({ precision: 3, mode: 'date' }).notNull(),
 	count: integer().notNull(),
 }, (table) => [
-	index("RateLimitBucket_windowStart_idx").using("btree", table.windowStart.asc().nullsLast().op("timestamp_ops")),
+	index("RateLimitBucket_windowStart_idx").using("btree", table.windowStart.asc().nullsLast()),
 	primaryKey({ columns: [table.scope, table.subjectHash, table.windowStart], name: "RateLimitBucket_pkey"}),
 ]);

@@ -11,6 +11,11 @@ describe('db without a database', () => {
     await expect(db.select().from(schema.campaign).where(undefined).limit(5)).resolves.toEqual([]);
   });
 
+  it('finds nothing with the relational findFirst', async () => {
+    const { db } = await import('./index');
+    await expect(db.query.campaign.findFirst()).resolves.toBeUndefined();
+  });
+
   it('runs a transaction callback against the same stand-in', async () => {
     const { db, schema } = await import('./index');
     const result = await db.transaction(async (tx) => tx.select().from(schema.category));

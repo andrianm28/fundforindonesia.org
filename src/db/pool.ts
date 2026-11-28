@@ -15,7 +15,14 @@ export const isBuildTime =
 
 export function getPool(): Pool {
   if (!globalForPool.pgPool) {
-    globalForPool.pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    // An idle client that loses its connection (a Postgres restart, a network
+    // blip) emits 'error' on the pool; unhandled, that would crash the process.
+    // The client is discarded and the next query opens a fresh one.
+    pool.on("error", (error) => {
+      console.error(JSON.stringify({ event: "db_pool_idle_client_error", message: error.message }));
+    });
+    globalForPool.pgPool = pool;
   }
   return globalForPool.pgPool;
 }

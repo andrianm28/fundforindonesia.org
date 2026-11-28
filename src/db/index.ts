@@ -20,6 +20,10 @@ function createBuildTimeMock(): Database {
       if (prop === "then") {
         return (resolve: (rows: unknown[]) => unknown) => resolve([]);
       }
+      if (prop === "findFirst") {
+        // db.query.<table>.findFirst() finds nothing: undefined, not [].
+        return async () => undefined;
+      }
       if (prop === "transaction") {
         return async (fn: (tx: unknown) => unknown) => fn(chain);
       }

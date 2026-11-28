@@ -1,13 +1,12 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { withContactFieldProtection } from "./field-protection";
-import { getPool } from "@/db/pool";
+import { getPool, isBuildTime } from "@/db/pool";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const isBuildTime = process.env.DATABASE_URL?.includes('dummy') || !process.env.DATABASE_URL;
 
 // During build time, return a mock that returns empty results
 function createBuildTimeMock(): PrismaClient {
