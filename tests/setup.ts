@@ -1,5 +1,3 @@
-import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
 // The ADR 0012 field keys, as fixed test-only values. Contact details have no
@@ -17,6 +15,13 @@ process.env.FIELD_HMAC_KEY_ID = 'hmac-test-1'
 // registers. Without it a rendered tree stays mounted after its test, and
 // React 19 can run scheduled work after jsdom is torn down ("window is not
 // defined" as an unhandled error, which fails the run).
-afterEach(() => {
-  cleanup()
-})
+//
+// Only DOM tests load Testing Library: importing it (and react-dom) in every
+// node-environment file was a large share of the suite's setup time.
+if (typeof window !== 'undefined') {
+  await import('@testing-library/jest-dom/vitest')
+  const { cleanup } = await import('@testing-library/react')
+  afterEach(() => {
+    cleanup()
+  })
+}
