@@ -28,6 +28,7 @@ Endpoint webhook yang didaftarkan di dashboard Sumopod: `/api/webhooks/sumopod` 
 | `SMTP_SECURE` | `true` atau `false`; kosong berarti `true` di port 465, `false` di port lain |
 | `SMTP_USER`, `SMTP_PASSWORD` | Kredensial relay |
 | `MAIL_FROM` | Alamat pengirim |
+| `MAIL_BLOCKED_DOMAINS` | Opsional. Domain penerima tambahan yang ditolak, dipisah koma (subdomain ikut). Daftar bawaan disimpan sebagai hash di `src/lib/mail/blocked-recipients.ts` |
 | `PARTNERSHIP_TEAM_EMAIL` | Kotak tim kemitraan yang menerima notifikasi Partnership Inquiry |
 
 Di produksi, nilai yang kurang dicatat sebagai `mail_not_configured` pada setiap email yang dicoba; keputusan bisnis tetap tersimpan, hanya emailnya yang tidak terkirim. Alamat kontak publik (`halo@...`, `privasi@...`) ada di `src/lib/site-identity.ts`, bukan di env.

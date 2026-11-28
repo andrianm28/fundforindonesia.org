@@ -397,13 +397,13 @@ describe.skipIf(!DATABASE_URL)('recurring donation (PKS 4.7) -- against real Pos
       await billing.runRecurringDonationBilling(NOW, mailer);
       const [cycle] = await cyclesOf(rec.id);
 
-      let [view] = await service.listRecurringDonations(prisma, rec.donorId);
+      let [view] = await service.listRecurringDonations(prisma, rec.donorId, NOW);
       expect(view.cycles[0]).toMatchObject({ cycleIndex: 0, status: 'PENDING' });
       expect(view.cycles[0].payUrl).toMatch(/^https:\/\/pay\.example\.test\//);
 
       expect((await pay(cycle.donationId!)).status).toBe(200);
 
-      [view] = await service.listRecurringDonations(prisma, rec.donorId);
+      [view] = await service.listRecurringDonations(prisma, rec.donorId, NOW);
       expect(view.cycles[0]).toMatchObject({ status: 'PAID', payUrl: null });
     });
 
@@ -414,7 +414,7 @@ describe.skipIf(!DATABASE_URL)('recurring donation (PKS 4.7) -- against real Pos
 
       expect((await pay(cycle.donationId!, 'expire')).status).toBe(200);
 
-      const [view] = await service.listRecurringDonations(prisma, rec.donorId);
+      const [view] = await service.listRecurringDonations(prisma, rec.donorId, NOW);
       expect(view.cycles[0]).toMatchObject({ status: 'OVERDUE', payUrl: null });
     });
   });
