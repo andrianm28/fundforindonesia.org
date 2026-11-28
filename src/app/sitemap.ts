@@ -4,6 +4,13 @@ import { sitemapCampaignWhere } from '@/lib/subject-guard';
 import { publicUrl } from '@/lib/public-url';
 import { resolveOperationsOrDefaults } from '@/lib/operations';
 
+// Render on each request. Without this, `next build` prerenders the sitemap
+// once, while DATABASE_URL is the build's dummy and src/lib/prisma.ts answers
+// every query with nothing: production then served only the static pages
+// below. `revalidate` would not do: the empty build copy would still be served
+// until its first regeneration after each deploy.
+export const dynamic = 'force-dynamic';
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [
