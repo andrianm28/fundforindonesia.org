@@ -1,6 +1,6 @@
 # Runbook: server MCP ops (read-only) di host produksi
 
-Server kecil yang membuat sesi Claude di Project bisa **membaca** status produksi lewat HTTPS, tanpa SSH dan tanpa shell. Kodenya: `ops/mcp-ops/server.mjs` (tanpa dependency, Node 24). Dokumen ini sengaja generik: hostname, IP, dan token hanya diketahui owner (repo ini publik).
+Server kecil yang membuat sesi Claude di Project bisa **membaca** status produksi lewat HTTPS, tanpa SSH dan tanpa shell. Kodenya: `ops/mcp-ops/server.mjs` (tanpa dependency, Node 26). Dokumen ini sengaja generik: hostname, IP, dan token hanya diketahui owner (repo ini publik).
 
 **Status: usulan, belum dipasang.** Memasangnya adalah **langkah owner** di host produksi. Tidak ada thread atau agent yang memasangnya. Aturan di `CLAUDE.md` (agent tidak menyentuh stack produksi) tetap berlaku; server ini hanya menyediakan jalur baca sempit yang owner pilih sendiri.
 
@@ -19,7 +19,7 @@ Yang **sengaja tidak ada**: shell, query database, `.env`, log container (bisa m
 
 ## Pasang (langkah owner)
 
-Semua langkah ini mengubah host produksi, jadi hanya owner (atau agent servernya atas perintah owner) yang menjalankannya. Host harus punya **Node 24** (aplikasi berjalan di Docker, jadi Node di host belum tentu ada; pasang dari sumber resmi atau jalankan server ini di container `node:24-slim` yang hanya me-mount tiga folder di bawah secara read-only dan membuka port ke `127.0.0.1`).
+Semua langkah ini mengubah host produksi, jadi hanya owner (atau agent servernya atas perintah owner) yang menjalankannya. Host harus punya **Node 26** (aplikasi berjalan di Docker, jadi Node di host belum tentu ada; pasang dari sumber resmi atau jalankan server ini di container `node:26-slim` yang hanya me-mount tiga folder di bawah secara read-only dan membuka port ke `127.0.0.1`).
 
 1. Buat user sistem khusus `mcp-ops` (bukan `deploy`, bukan root): tanpa shell login, tanpa sudo, tanpa grup docker.
 2. **Beri hak baca.** `ops/deploy.sh` memakai `umask 077`, jadi `state/`, `logs/`, dan `backups/` milik `deploy` bermode 700 dan berkas di dalamnya 600; user `mcp-ops` tidak bisa membacanya, dan tiga tool file akan selalu menjawab "not readable". Beri akses baca-saja lewat ACL, termasuk default ACL supaya berkas yang dibuat deploy berikutnya ikut terbaca, dan izin lewat (traverse) pada folder induk:

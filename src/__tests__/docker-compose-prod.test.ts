@@ -138,7 +138,7 @@ describe("docker-compose.prod.yml", () => {
   });
 
   it("pins the postgres image to an exact minor, not a floating major tag", () => {
-    expect(service("db")).toContain("    image: postgres:16.15-alpine");
+    expect(service("db")).toContain("    image: postgres:16.16-alpine");
   });
 });
 

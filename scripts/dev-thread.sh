@@ -21,7 +21,7 @@ DB_NAME=ffi
 DB_USER=ffi
 mkdir -p "$STATE"
 
-if [ -x /opt/node24/bin/node ]; then export PATH="/opt/node24/bin:$PATH"; fi
+for d in /opt/node26 /opt/node24; do if [ -x "$d/bin/node" ]; then export PATH="$d/bin:$PATH"; break; fi; done
 
 dev_env() {
   cat << EOF

@@ -24,8 +24,8 @@ seed bersandi `password123`:
   `NODE_ENV=production`); email memakai mailer `mock` (dicatat, tidak
   terkirim). Tidak ada kredensial asli, semua nilai adalah placeholder seperti
   di CI.
-- Butuh Postgres dan Node 24 dari setup script environment
-  (`cloud-environment.md`); skrip memakai `/opt/node24` bila ada.
+- Butuh Postgres dan Node 26 dari setup script environment
+  (`cloud-environment.md`); skrip memakai `/opt/node26` bila ada.
 - Log server: `/tmp/ffi-dev-thread/next.log`.
 - Screenshot: Playwright sudah terpasang di cloud session
   (`require('playwright')`, `chromium.launch()`), arahkan ke

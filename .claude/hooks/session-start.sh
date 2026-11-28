@@ -1,7 +1,7 @@
 #!/bin/bash
 # SessionStart hook for Claude Code cloud sessions: makes a fresh container
 # ready for the full test suite, tsc, lint and build. Local sessions skip it.
-# The environment's setup script installs Node 24 at /opt/node24; see
+# The environment's setup script installs Node 26 at /opt/node26; see
 # docs/agents/cloud-environment.md.
 set -euo pipefail
 
@@ -11,15 +11,22 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# The repo requires Node 24 (.nvmrc, engines); the cloud image puts 22 on PATH.
-if [ -x /opt/node24/bin/node ]; then
-  export PATH="/opt/node24/bin:$PATH"
+# The repo requires Node 26 (.nvmrc, engines); the cloud image puts 22 on PATH.
+# /opt/node24 is the fallback while an environment still runs the old setup
+# script (it ran Node 24 before the Node 26 LTS upgrade).
+node_dir=""
+for d in /opt/node26 /opt/node24; do
+  if [ -x "$d/bin/node" ]; then node_dir="$d"; break; fi
+done
+if [ -n "$node_dir" ]; then
+  export PATH="$node_dir/bin:$PATH"
   # Persist for every Bash command Claude runs in this session.
   if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-    echo 'export PATH="/opt/node24/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
+    echo "export PATH=\"$node_dir/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
   fi
-else
-  echo "warning: /opt/node24 missing; running on $(node -v). Add the setup script from docs/agents/cloud-environment.md." >&2
+fi
+if [ "$node_dir" != /opt/node26 ]; then
+  echo "warning: /opt/node26 missing; running on $(node -v). Update the setup script from docs/agents/cloud-environment.md." >&2
 fi
 
 # npm is canonical (the Dockerfile and CI use package-lock.json). `npm ci`

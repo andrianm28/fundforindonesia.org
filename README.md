@@ -30,7 +30,7 @@ Repo ini publik. Tidak ada host, IP, kredensial, atau data pribadi di dalamnya; 
 
 ## Setup lokal
 
-Prasyarat: Node 24 (`engines`: `>=24 <25`), npm, PostgreSQL.
+Prasyarat: Node 26 LTS (`engines`: `>=26 <27`), npm, PostgreSQL.
 
 ```bash
 npm ci
