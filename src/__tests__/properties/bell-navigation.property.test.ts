@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, test, expect, vi } from "vitest";
 import * as fc from "fast-check";
 import { render, screen } from "@testing-library/react";
