@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SmtpMailer, type CreateTransport } from './smtp-mailer';
+import { BlockedRecipientError } from './blocked-recipients';
 
 /**
  * The adapter's whole job is to hand the relay the right options and the
@@ -97,5 +98,19 @@ describe('SmtpMailer', () => {
 
     expect(calls.mails[0]).toMatchObject({ from: 'no-reply@example.test', replyTo: 'rina@sinarabadi.test' });
     expect(calls.mails[1]).not.toHaveProperty('replyTo');
+  });
+});
+
+describe('SmtpMailer and blocked domains', () => {
+  it('refuses a recipient on a blocked domain before the relay sees it', async () => {
+    process.env.MAIL_BLOCKED_DOMAINS = 'blocked.example';
+    try {
+      const { calls, createTransport } = recordingTransport();
+      const mailer = new SmtpMailer(CONFIG, createTransport);
+      await expect(mailer.send({ ...MESSAGE, to: 'x@blocked.example' })).rejects.toThrow(BlockedRecipientError);
+      expect(calls.mails).toHaveLength(0);
+    } finally {
+      delete process.env.MAIL_BLOCKED_DOMAINS;
+    }
   });
 });

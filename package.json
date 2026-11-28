@@ -60,6 +60,7 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "nodemailer": "$nodemailer"
+    "nodemailer": "$nodemailer",
+    "effect": "^3.22.5"
   }
 }

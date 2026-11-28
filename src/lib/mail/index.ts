@@ -1,12 +1,14 @@
 import { MockMailer } from './mock-mailer';
 import { SmtpMailer } from './smtp-mailer';
 import { recordFailedNotification } from './failed-queue';
+import { BlockedRecipientError } from './blocked-recipients';
 import type { Mailer, MailMessage } from './types';
 
 export { MockMailer } from './mock-mailer';
 export { SmtpMailer } from './smtp-mailer';
 export type { SmtpConfig, CreateTransport } from './smtp-mailer';
 export type { Mailer, MailMessage } from './types';
+export { BlockedRecipientError } from './blocked-recipients';
 
 /**
  * Raised when the Mailer cannot be built because it is not configured. Loud
@@ -93,7 +95,10 @@ export function errorText(error: unknown): string {
  * operator can find it and resend:
  * - `mail_not_configured`: the Mailer could not be built (MAIL_PROVIDER or
  *   the SMTP_* variables are missing or wrong); nothing was attempted;
- * - `mail_send_failed`: the provider refused or never answered.
+ * - `mail_send_failed`: the provider refused or never answered;
+ * - `mail_recipient_blocked`: the recipient is on a blocked domain
+ *   (./blocked-recipients.ts); it is not queued, since a retry would be
+ *   refused the same way.
  * The recipient's address is left out of the log; the context names them
  * by id.
  *
@@ -122,6 +127,10 @@ export async function sendReportingFailure(
     await resolved.send(message);
     return true;
   } catch (error) {
+    if (error instanceof BlockedRecipientError) {
+      console.error(JSON.stringify({ event: 'mail_recipient_blocked', ...report, provider: resolved.name }));
+      return false;
+    }
     console.error(
       JSON.stringify({
         event: 'mail_send_failed',

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { readUserEmail, requireFieldKeys } from '@/lib/contact-fields';
-import { errorText, getMailer, type Mailer, type MailMessage } from '@/lib/mail';
+import { BlockedRecipientError, errorText, getMailer, type Mailer, type MailMessage } from '@/lib/mail';
 import { escapeHtml } from '@/lib/mail/escape-html';
 import {
   backoffAfterFailure,
@@ -147,10 +147,20 @@ async function attempt(
     ) as MailMessage;
     await (mailer ?? getMailer()).send(message);
   } catch (error) {
-    const attempts = row.attempts + 1;
+    // A recipient on a blocked domain would be refused on every retry: the row
+    // goes DEAD now instead of after the backoff (./mail/blocked-recipients.ts).
+    const blocked = error instanceof BlockedRecipientError;
+    const attempts = blocked ? Math.max(row.attempts + 1, MAX_NOTIFICATION_ATTEMPTS) : row.attempts + 1;
     const dead = attempts >= MAX_NOTIFICATION_ATTEMPTS;
     console.error(
-      JSON.stringify({ event: 'mail_retry_failed', mail: row.kind, notificationId: id, attempts, dead, error: errorText(error) }),
+      JSON.stringify({
+        event: blocked ? 'mail_recipient_blocked' : 'mail_retry_failed',
+        mail: row.kind,
+        notificationId: id,
+        attempts,
+        dead,
+        error: errorText(error),
+      }),
     );
     const written = await prisma.failedNotification.updateMany({
       where: stillOurs,
@@ -319,7 +329,8 @@ export async function sendAdminAlert(
         await mailer.send({ to, subject, text, html });
         delivered++;
       } catch (error) {
-        console.error(JSON.stringify({ event: 'admin_alert_send_failed', alert: kind, error: errorText(error) }));
+        const event = error instanceof BlockedRecipientError ? 'mail_recipient_blocked' : 'admin_alert_send_failed';
+        console.error(JSON.stringify({ event, alert: kind, error: errorText(error) }));
       }
     }
   } catch (error) {
