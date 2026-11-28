@@ -101,13 +101,18 @@ FROM node:24.22.0-alpine AS migrate
 WORKDIR /app
 
 COPY package-lock.json /tmp/package-lock.json
-RUN versions="$(node -e 'const p = require("/tmp/package-lock.json").packages; console.log(["prisma", "dotenv"].map((n) => n + "@" + p["node_modules/" + n].version).join(" "))')" \
+COPY package.json /tmp/package.json
+# package.json's "overrides" (e.g. effect, which @prisma/config pins to a
+# version with a known advisory) apply here too: npm reads them from the
+# project's own package.json, so one with only the overrides is written first.
+RUN node -e 'const o = require("/tmp/package.json").overrides || {}; require("fs").writeFileSync("package.json", JSON.stringify({ private: true, overrides: Object.fromEntries(Object.entries(o).filter(([, v]) => !v.startsWith("$"))) }))' \
+    && versions="$(node -e 'const p = require("/tmp/package-lock.json").packages; console.log(["prisma", "dotenv"].map((n) => n + "@" + p["node_modules/" + n].version).join(" "))')" \
     && npm install --no-save --no-package-lock --no-audit --no-fund $versions \
     && npm cache clean --force \
     && apk upgrade --no-cache \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
               /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
-    && rm /tmp/package-lock.json
+    && rm /tmp/package-lock.json /tmp/package.json
 
 # --chown for the same reason the runner chowns public/: COPY keeps the build
 # context's modes, and a checkout that is drwxrwx--- would leave the
