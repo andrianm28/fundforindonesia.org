@@ -33,6 +33,9 @@ function walk(dir: string): string[] {
 const appFiles = () =>
   walk('src')
     .filter((file) => !file.startsWith('src/generated/'))
+    // The Drizzle schema declares the enum, as src/generated does for Prisma;
+    // declaring a value is not crediting it (ADR 0029).
+    .filter((file) => file !== 'src/db/schema.ts')
     .filter((file) => !file.endsWith('.test.ts') && !file.endsWith('.test.tsx'));
 
 const source = (file: string) => readFileSync(file, 'utf8');

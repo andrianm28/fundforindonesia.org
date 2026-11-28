@@ -1,12 +1,12 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { withContactFieldProtection } from "./field-protection";
+import { getPool, isBuildTime } from "@/db/pool";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const isBuildTime = process.env.DATABASE_URL?.includes('dummy') || !process.env.DATABASE_URL;
 
 // During build time, return a mock that returns empty results
 function createBuildTimeMock(): PrismaClient {
@@ -37,8 +37,8 @@ function createPrismaClient(): PrismaClient {
   if (isBuildTime) {
     return createBuildTimeMock();
   }
-  const connectionString = process.env.DATABASE_URL!;
-  const adapter = new PrismaPg({ connectionString });
+  // The pool Drizzle uses too (src/db/pool.ts, ADR 0029).
+  const adapter = new PrismaPg(getPool());
   // Every User and BankAccount write also stores the encrypted forms of the
   // contact details (ADR 0012).
   return withContactFieldProtection(new PrismaClient({ adapter }));
