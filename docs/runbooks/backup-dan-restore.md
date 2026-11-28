@@ -94,7 +94,7 @@ Restore ke database sementara, **bukan produksi**. Postgres sementara dengan ver
 
 ```bash
 docker run -d --name ffi-drill -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
-  -p 127.0.0.1:55432:5432 postgres:16.15-alpine
+  -p 127.0.0.1:55432:5432 postgres:16.16-alpine
 # tunggu sampai siap, lalu buat database kosong
 docker exec ffi-drill createdb -U postgres drill
 pg_restore --no-owner --no-privileges --exit-on-error \

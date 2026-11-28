@@ -1,4 +1,4 @@
-// Read-only ops MCP server for the production host (no dependencies, Node 24).
+// Read-only ops MCP server for the production host (no dependencies, Node 26).
 //
 // Four tools, each a fixed read: app health, the release now running, the tail
 // of the deploy log, and the list of database backups (names and sizes only).

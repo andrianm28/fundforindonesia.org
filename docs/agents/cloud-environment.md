@@ -12,7 +12,7 @@ https://code.claude.com/docs/en/cloud-environments.
 - **Network access:** **Trusted**. Its default allowlist already covers every
   host this repo needs:
   - `registry.npmjs.org`, for npm;
-  - `nodejs.org`, for the Node 24 download;
+  - `nodejs.org`, for the Node 26 download;
   - `binaries.prisma.sh`, for Prisma;
   - `ghcr.io` and Docker Hub;
   - `fonts.googleapis.com`.
@@ -53,23 +53,23 @@ BASH_MAX_TIMEOUT_MS=600000
 
 The script runs as root on Ubuntu 24.04 before Claude starts. Its result is
 cached for about 7 days, and it reruns when the script changes. The image
-ships Node 20, 21 and 22 only, while the repo requires 24 (`.nvmrc`,
+ships Node 20, 21 and 22 only, while the repo requires 26 (`.nvmrc`,
 `engines`).
 
 ```bash
 #!/bin/bash
 set -euo pipefail
 
-# Node 24 (repo: .nvmrc=24; the image ships 20/21/22 only). Checksum-verified.
-if [ ! -x /opt/node24/bin/node ]; then
-  base=https://nodejs.org/dist/latest-v24.x
+# Node 26 (repo: .nvmrc=26; the image ships 20/21/22 only). Checksum-verified.
+if [ ! -x /opt/node26/bin/node ]; then
+  base=https://nodejs.org/dist/latest-v26.x
   sums=$(curl -fsSL "$base/SHASUMS256.txt")
-  f=$(echo "$sums" | grep -o 'node-v24[^ ]*-linux-x64\.tar\.xz' | head -1)
+  f=$(echo "$sums" | grep -o 'node-v26[^ ]*-linux-x64\.tar\.xz' | head -1)
   curl -fsSLo "/tmp/$f" "$base/$f"
   (cd /tmp && echo "$sums" | grep " $f\$" | sha256sum -c -)
-  mkdir -p /opt/node24 && tar -xJf "/tmp/$f" -C /opt/node24 --strip-components=1
+  mkdir -p /opt/node26 && tar -xJf "/tmp/$f" -C /opt/node26 --strip-components=1
 fi
-echo 'export PATH=/opt/node24/bin:$PATH' > /etc/profile.d/node24.sh
+echo 'export PATH=/opt/node26/bin:$PATH' > /etc/profile.d/node26.sh
 
 # Tools for ops/ and workflow tests. gh is not pre-installed in practice
 # (checked 2026-09-26, despite the docs); it authenticates through the
@@ -88,7 +88,7 @@ service postgresql stop
 `.claude/hooks/session-start.sh`, registered for `startup|resume`, runs in
 cloud sessions only:
 
-- it puts `/opt/node24/bin` first on `PATH`, for the hook and, through
+- it puts `/opt/node26/bin` first on `PATH`, for the hook and, through
   `$CLAUDE_ENV_FILE`, for every command in the session;
 - it runs `npm ci` (never rewrites the lockfile), but only when `package-lock.json` or the Node
   version changed;
@@ -107,7 +107,7 @@ on :3000) and click through a change: `scripts/dev-thread.sh`, see
 
 ## Check in the first session
 
-- `node -v` prints v24.
+- `node -v` prints v26.
 - `npx vitest run` is green.
 - `58da2c13-5ed4-4485-9625-fb87b369e6b4:tdd` (Skills For Real Engineers plugin,
   enabled on the owner's claude.ai account) is listed; the vendored `/tdd` is
@@ -116,4 +116,4 @@ on :3000) and click through a change: `scripts/dev-thread.sh`, see
 
 If `node -v` still prints v22, the setup script didn't run or
 `$CLAUDE_ENV_FILE` didn't apply. Prefix commands with
-`PATH=/opt/node24/bin:$PATH` and report it.
+`PATH=/opt/node26/bin:$PATH` and report it.
