@@ -45,7 +45,7 @@ vi.mock('@/lib/prisma', () => ({
   ),
 }));
 
-import sitemap from './sitemap';
+import sitemap, * as sitemapRoute from './sitemap';
 
 const NOW = new Date('2026-09-25T12:00:00Z');
 const YESTERDAY = new Date('2026-09-24T12:00:00Z');
@@ -166,5 +166,15 @@ describe('the sitemap lists the module landings', () => {
     const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
 
     expect(urls).toEqual(expect.arrayContaining(['/program', '/kolaborasi-csr', '/wakaf', '/hibah']));
+  });
+});
+
+describe('the sitemap is built per request, not at image build time', () => {
+  // `next build` runs with a dummy DATABASE_URL, and src/lib/prisma.ts then
+  // answers every query with nothing. A sitemap prerendered there listed only
+  // the 8 static pages on production (read 2026-11-28): no Campaign, Program,
+  // category or organisation. Rendering on request reads the real database.
+  it('opts out of build-time prerendering', () => {
+    expect(sitemapRoute.dynamic).toBe('force-dynamic');
   });
 });
